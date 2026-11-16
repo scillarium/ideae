@@ -33,7 +33,9 @@ src/task/          one task, a module: what is private to it is seen by all of i
   annotate.rs      git blame by every line, in the gutter
   bookmarks.rs     bookmarked lines: toggle, next/previous, the task's list
   change_tree.rs   the changed files as a tree
+  file_tree.rs     the Files panel: names colored by git status, ignored folders read when opened
   helpers.rs       patches parsed for the panels, outline, symbol search, definition providers
+src/file_icons.rs  file and folder icons (assets/file-icons, JetBrains' new UI), by name
 src/state.rs       state.json; APP_ID (ideae vs ideae-dev)
 src/agent.rs       Claude Code hooks bridge (unix socket, `ideae --hook`)
 src/crash.rs       what a panic leaves: crashes.log next to the state, told at the next start

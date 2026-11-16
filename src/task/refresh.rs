@@ -156,26 +156,12 @@ impl TaskView {
             (stem.len() > 2 && stem.chars().next()?.is_ascii_uppercase()).then(|| stem.to_string())
         }));
         self.tree_files = files;
+        self.mark_tree();
         self.tree_stale = true;
         if crate::workspace::present::on() {
             self.veil_ignored(cx);
         }
         self.fill_tree(cx);
-    }
-
-    /// The Files panel's tree, built when the panel is the one shown: it
-    /// holds every path again, several times over, in every open task.
-    pub(super) fn fill_tree(&mut self, cx: &mut Context<Self>) {
-        let shown = self.visible && self.right == RightPane::Files;
-        if self.tree_stale && shown {
-            self.tree_stale = false;
-            let items = build_tree(&self.tree_files, &self.expanded);
-            self.tree.update(cx, |t, cx| t.set_items(items, cx));
-        } else if !self.tree_stale && !shown {
-            // Let go of when not shown: every path again, in every task that showed it once.
-            self.tree_stale = true;
-            self.tree.update(cx, |t, cx| t.set_items(Vec::new(), cx));
-        }
     }
 
     pub(super) fn apply_branch(&mut self, info: git::BranchInfo, cx: &mut Context<Self>) {

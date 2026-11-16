@@ -49,6 +49,8 @@ mod pr;
 mod replace;
 mod annotate;
 mod bookmarks;
+mod file_tree;
+use file_tree::*;
 use git_ui::*;
 pub use helpers::*;
 // Named, to come before the one of the same name in gpui's own glob.
@@ -357,6 +359,13 @@ pub struct TaskView {
     /// The same list for definition lookups running off the UI thread.
     shared_files: Arc<std::sync::RwLock<Arc<Vec<String>>>>,
     expanded: HashSet<SharedString>,
+    /// The tree's colors: what git says of each changed file and folder.
+    tree_marks: Rc<HashMap<String, Mark>>,
+    /// What `.gitignore` keeps out, as git status names it.
+    tree_ignored: Rc<Vec<String>>,
+    /// The ignored folders open in the tree, as read from disk.
+    ignored_listed: HashMap<SharedString, Listing>,
+    ignored_reading: HashSet<SharedString>,
     /// Folders folded in the Changes tree, as "staged:dir" / "changes:dir".
     folded_changes: HashSet<String>,
     /// Out of view long enough (or never shown): no language servers run;
@@ -406,13 +415,9 @@ impl TaskView {
         let changes = cx.new(|cx| ChangesView::new(root.clone(), weak.clone(), cx));
         let history = cx.new(|cx| HistoryView::new(root.clone(), weak, cx));
         let tree = cx.new(|cx| TreeState::new(cx));
-        cx.subscribe(&tree, |this: &mut Self, _, event: &TreeEvent, _| match event {
-            TreeEvent::Expanded(id) => {
-                this.expanded.insert(id.clone());
-            }
-            TreeEvent::Collapsed(id) => {
-                this.expanded.remove(id);
-            }
+        cx.subscribe(&tree, |this: &mut Self, _, event: &TreeEvent, cx| match event {
+            TreeEvent::Expanded(id) => this.tree_expanded(id, cx),
+            TreeEvent::Collapsed(id) => this.tree_collapsed(id),
         })
         .detach();
 
@@ -502,7 +507,7 @@ impl TaskView {
                         (read, patch, branch, shared, staged, changed_on_disk(open_known), seen, known)
                     })
                     .await;
-                let git::Refreshed { files, info, states, base, stashes, failed, .. } = read;
+                let git::Refreshed { files, ignored, info, states, base, stashes, failed, .. } = read;
                 known = now_known;
                 seen = now_seen;
                 let applied = this.update_in(cx, |this, window, cx| {
@@ -518,6 +523,7 @@ impl TaskView {
                     }
                     if this.file_states != states {
                         this.file_states = states;
+                        this.mark_tree();
                         cx.notify();
                     }
                     if this.stashes != stashes {
@@ -535,6 +541,7 @@ impl TaskView {
                     }
                     this.apply_branch_patch(base, branch, shared, cx);
                     this.apply_files(files, cx);
+                    this.apply_ignored(ignored, cx);
                     this.apply_branch(info, cx);
                 });
                 if applied.is_err() {
@@ -625,6 +632,10 @@ impl TaskView {
             tree_stale: false,
             shared_files: Arc::default(),
             expanded: HashSet::new(),
+            tree_marks: Rc::default(),
+            tree_ignored: Rc::default(),
+            ignored_listed: HashMap::new(),
+            ignored_reading: HashSet::new(),
             folded_changes: HashSet::new(),
             lsp_asleep: false,
             file_states: HashMap::new(),
@@ -1724,70 +1735,6 @@ impl TaskView {
         self.activate(ix, window, cx);
     }
 
-    fn render_tree(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let view = cx.weak_entity();
-        let root = self.root.clone();
-        let changed = self.changed_paths.clone();
-        let touched = self.agent_touched.clone();
-        let editing = self.agent_editing.clone();
-        div().flex_1().min_h_0().child(
-            tree(&self.tree, move |ix, entry, selected, _, cx| {
-                let item = entry.item();
-                let label = if entry.is_folder() { StyledText::new(item.label.clone()) } else { file_label(item.label.clone(), cx) };
-                // Folders have one icon, open or not; the chevron before it tells.
-                let chevron = div().size_4().flex_none().flex().items_center().justify_center().when(entry.is_folder(), |this| {
-                    let chevron = if entry.is_expanded() { IconName::ChevronDown } else { IconName::ChevronRight };
-                    this.child(gpui_kit::component::Icon::new(chevron).size_3p5().text_color(cx.theme().muted_foreground))
-                });
-                let icon = crate::file_icons::icon(
-                    if entry.is_folder() { crate::file_icons::folder(&item.label) } else { crate::file_icons::file(&item.label) },
-                    cx,
-                );
-                let is_changed = changed.contains(&item.id);
-                // The agent's work shows in place of the plain "changed" dot;
-                // a folder leads to the file being written.
-                let on_the_way = editing.as_deref().is_some_and(|e| {
-                    e.strip_prefix(item.id.as_ref()).is_some_and(|rest| rest.is_empty() || (item.is_folder() && rest.starts_with('/')))
-                });
-                let agent = if on_the_way && !item.is_folder() {
-                    Some("editing")
-                } else if on_the_way || touched.contains(&item.id) {
-                    Some("●")
-                } else {
-                    None
-                };
-                let path = root.join(item.id.as_ref());
-                let folder = item.is_folder();
-                let view = view.clone();
-                ListItem::new(ix)
-                    .w_full()
-                    .py_0p5()
-                    .px_2()
-                    .pl(px(16.) * entry.depth() + px(4.))
-                    .selected(selected)
-                    .child(
-                        h_flex()
-                            .gap_1p5()
-                            .text_sm()
-                            .child(chevron)
-                            .child(icon)
-                            .child(div().truncate().child(label))
-                            .when(is_changed && agent.is_none(), |this| this.child(div().text_xs().text_color(gpui_kit::green()).child("●")))
-                            .when_some(agent, |this, mark| this.child(div().text_xs().text_color(gpui_kit::blue()).child(mark))),
-                    )
-                    .on_click(move |event, window, cx| {
-                        if folder {
-                            return;
-                        }
-                        let path = path.clone();
-                        let how = if event.click_count() > 1 { OpenAs::Kept } else { OpenAs::Preview };
-                        let _ = view.update(cx, |t, cx| t.open_file_as(path, 0, 0, how, window, cx));
-                    })
-            })
-            .size_full(),
-        )
-    }
-
     fn show_changed_file(&mut self, path: SharedString, window: &mut Window, cx: &mut Context<Self>) {
         self.show_tab(|k| matches!(k, TabKind::Changes), window, cx);
         let diff = self.changes.read(cx).diff.clone();
@@ -1858,43 +1805,6 @@ impl Render for TaskView {
             )
             .into_any_element()
     }
-}
-
-/// Nests sorted relative paths into tree items. Folder ids end in `/`, and the
-/// folders in `expanded` stay open across rebuilds.
-fn build_tree(files: &[String], expanded: &HashSet<SharedString>) -> Vec<TreeItem> {
-    #[derive(Default)]
-    struct Node {
-        dirs: BTreeMap<String, Node>,
-        files: Vec<String>,
-    }
-    let mut root = Node::default();
-    for file in files {
-        let mut node = &mut root;
-        let mut parts = file.split('/').peekable();
-        while let Some(part) = parts.next() {
-            if parts.peek().is_none() {
-                node.files.push(file.clone());
-            } else {
-                node = node.dirs.entry(part.to_string()).or_default();
-            }
-        }
-    }
-    fn items(node: &Node, prefix: &str, expanded: &HashSet<SharedString>) -> Vec<TreeItem> {
-        let mut out = Vec::new();
-        for (name, child) in &node.dirs {
-            let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-            let id = SharedString::from(format!("{path}/"));
-            let open = expanded.contains(&id);
-            out.push(TreeItem::new(id, name.clone()).children(items(child, &path, expanded)).expanded(open));
-        }
-        for file in &node.files {
-            let name = file.rsplit('/').next().unwrap_or(file);
-            out.push(TreeItem::new(file.clone(), name.to_string()));
-        }
-        out
-    }
-    items(&root, "", expanded)
 }
 
 #[cfg(test)]

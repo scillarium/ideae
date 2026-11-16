@@ -449,6 +449,9 @@ struct Status {
     untracked: Vec<String>,
     /// The tracked files that changed, with where a renamed one was.
     changed: Vec<String>,
+    /// What `.gitignore` keeps out: files, and folders as `target/` with
+    /// nothing of what is in them.
+    ignored: Vec<String>,
 }
 
 /// With `light` git reads the worktree on one thread, not ten: the same
@@ -489,8 +492,10 @@ fn parse_status(out: &str) -> Status {
             if path.ends_with('/') {
                 continue;
             }
-            status.states.insert(path.to_string(), FileState { staged: false, unstaged: true });
+            status.states.insert(path.to_string(), FileState { staged: false, unstaged: true, change: Change::Untracked });
             status.untracked.push(path.to_string());
+        } else if let Some(path) = entry.strip_prefix("! ") {
+            status.ignored.push(path.to_string());
         } else {
             let fields = match entry.as_bytes().first() {
                 Some(b'1') => 8,
@@ -502,9 +507,15 @@ fn parse_status(out: &str) -> Status {
                 Some(b'u') => 10,
                 _ => continue,
             };
+            let kind = entry.as_bytes()[0];
             if let Some((x, y, path)) = changed(fields) {
+                let change = match (kind, x, y) {
+                    (b'u', ..) => Change::Conflict,
+                    (_, b'A', _) | (_, _, b'A') => Change::Added,
+                    _ => Change::Modified,
+                };
                 status.changed.push(path.clone());
-                status.states.insert(path, FileState { staged: x != b'.', unstaged: y != b'.' });
+                status.states.insert(path, FileState { staged: x != b'.', unstaged: y != b'.', change });
             }
         }
     }
@@ -615,6 +626,8 @@ impl Known {
 /// All a task shows of its worktree, read in one go.
 pub struct Refreshed {
     pub files: Arc<Vec<String>>,
+    /// What `.gitignore` keeps out, as the status names it.
+    pub ignored: Vec<String>,
     pub watch: (Arc<std::collections::BTreeSet<PathBuf>>, Vec<PathBuf>),
     pub info: BranchInfo,
     pub states: std::collections::HashMap<String, FileState>,
@@ -711,10 +724,10 @@ pub fn stash_patch(root: &Path, name: &str) -> String {
 pub fn refresh(root: &Path, picked: Option<String>, light: bool, known: &mut Known) -> Refreshed {
     use std::hash::{Hash as _, Hasher as _};
     known.fresh(root);
-    let raw = git(root, &light_args(light, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])).unwrap_or_default();
+    let raw = git(root, &light_args(light, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all", "--ignored=matching"])).unwrap_or_default();
     // A status has its branch lines at the least.
     let failed = raw.is_empty();
-    let Status { mut info, oid, states, untracked, changed } = parse_status(&raw);
+    let Status { mut info, oid, states, untracked, changed, ignored } = parse_status(&raw);
 
     // Every file: the tracked ones and, from the status, those that are new.
     let tracked = known.tracked(root);
@@ -783,7 +796,9 @@ pub fn refresh(root: &Path, picked: Option<String>, light: bool, known: &mut Kno
     // are on disk, and where the branch forked: the same of all three, the
     // same patches, and git is not asked.
     let mut made_of = std::collections::hash_map::DefaultHasher::new();
-    (&raw, &history.fork, &compared).hash(&mut made_of);
+    // Not what is ignored: a build writing its output changes no patch.
+    raw.split('\0').filter(|entry| !entry.starts_with("! ")).for_each(|entry| entry.hash(&mut made_of));
+    (&history.fork, &compared).hash(&mut made_of);
     for path in changed.iter().chain(&untracked) {
         stamp(&root.join(path)).hash(&mut made_of);
     }
@@ -801,7 +816,7 @@ pub fn refresh(root: &Path, picked: Option<String>, light: bool, known: &mut Kno
         if info.upstream.is_some() && info.behind > 0 {
             info.pull_conflicts = known.pull.1.clone();
         }
-        return Refreshed { files, watch, info, states, base, patches: None, stashes, failed };
+        return Refreshed { files, ignored, watch, info, states, base, patches: None, stashes, failed };
     }
     known.patches = Some(made_of);
 
@@ -824,7 +839,7 @@ pub fn refresh(root: &Path, picked: Option<String>, light: bool, known: &mut Kno
         info.pull_conflicts = known.pull.1.clone();
     }
     let staged = if states.values().any(|state| state.staged) { git(root, &[&["diff", "--cached"][..], DIFF_ARGS].concat()).unwrap_or_default() } else { String::new() };
-    Refreshed { files, watch, info, states, base, patches: Some(Patches { working, branch, staged }), stashes, failed }
+    Refreshed { files, ignored, watch, info, states, base, patches: Some(Patches { working, branch, staged }), stashes, failed }
 }
 
 /// The most changed files `git diff` is told by name. More, and naming
@@ -980,6 +995,19 @@ pub fn commit_patch(root: &Path, hash: &str) -> String {
 pub struct FileState {
     pub staged: bool,
     pub unstaged: bool,
+    pub change: Change,
+}
+
+/// What became of a file since the last commit, as the tree colors it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Change {
+    #[default]
+    Modified,
+    /// New, and added to the index.
+    Added,
+    /// New, and not added.
+    Untracked,
+    Conflict,
 }
 
 /// Runs a command in `root` for a user action: stdout on success, stderr (or
@@ -2372,7 +2400,7 @@ mod refresh_tests {
             1 A. N... 000000 100644 100644 000 bbb new.rs\0\
             2 R. N... 100644 100644 100644 aaa bbb R100 to here.rs\0from.rs\0\
             u UU N... 100644 100644 100644 100644 a b c both.rs\0\
-            ? notes/todo.md\0";
+            ? notes/todo.md\0! target/\0! .env\0";
         let status = parse_status(out);
         assert_eq!((status.info.head.as_str(), status.info.upstream.as_deref(), status.info.ahead, status.info.behind), ("task", Some("origin/task"), 2, 1));
         assert_eq!(status.oid, "abc");
@@ -2383,6 +2411,12 @@ mod refresh_tests {
         assert_eq!(state("both.rs"), Some((true, true)));
         assert_eq!(state("notes/todo.md"), Some((false, true)));
         assert_eq!((status.states.len(), status.untracked.as_slice()), (5, ["notes/todo.md".to_string()].as_slice()));
+        let change = |path: &str| status.states.get(path).map(|s| s.change);
+        assert_eq!(
+            ["src/a b.rs", "new.rs", "to here.rs", "both.rs", "notes/todo.md"].map(change),
+            [Change::Modified, Change::Added, Change::Modified, Change::Conflict, Change::Untracked].map(Some)
+        );
+        assert_eq!(status.ignored, ["target/", ".env"]);
     }
 
     /// A refresh of a real worktree: what it reads, and its patch of new

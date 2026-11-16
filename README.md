@@ -48,6 +48,11 @@ Windows build exists and is being tried out (see [Windows](#windows)).
   fires when a task out of view wants you. The Changes and Files panels
   mark the file the agent is writing to and those it wrote to since your
   last prompt.
+- **Files panel.** File and folder icons as JetBrains' new UI draws them.
+  A name has the color of what git says of it: blue changed, green added,
+  red-brown not added, olive ignored; a folder, of what is in it. An
+  ignored folder (`target/`, `node_modules/`) is read from disk when it is
+  opened. The Changes list colors its files the same, a deleted one gray.
 - **Themes.** Ayu, Catppuccin, Gruvbox, Solarized, Everforest and
   Flexoki, each with a light and a dark side (the switch in the title
   bar: auto, light, dark). Theme… in the menu lists them and draws each

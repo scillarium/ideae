@@ -20,7 +20,7 @@ impl TaskView {
     }
 
     pub(super) fn state_of(&self, path: &str) -> git::FileState {
-        self.file_states.get(path).copied().unwrap_or(git::FileState { staged: false, unstaged: true })
+        self.file_states.get(path).copied().unwrap_or(git::FileState { staged: false, unstaged: true, ..Default::default() })
     }
 
     pub(super) fn render_commit_box(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -450,6 +450,14 @@ impl TaskView {
             DiffFileStatus::Renamed => "R",
             _ => "M",
         };
+        // Colored as in the Files tree, and gray when gone.
+        let mark = match (file.status, self.file_states.get(file.path.as_ref()).map(|state| state.change)) {
+            (DiffFileStatus::Deleted, _) => Mark::Deleted,
+            (_, Some(change)) => change.into(),
+            (DiffFileStatus::Added, None) => Mark::Added,
+            (DiffFileStatus::Conflicted, None) => Mark::Conflict,
+            _ => Mark::Modified,
+        };
         let id = if in_staged { ix * 2 + 1 } else { ix * 2 };
         let keyboard = self.side_has_focus.get() && self.right == RightPane::Changes && ix == self.side_selected;
         let viewed = self.is_viewed(ix);
@@ -471,7 +479,7 @@ impl TaskView {
             .cursor_pointer()
             .hover(|s| s.bg(cx.theme().accent))
             .child(div().w(px(12.)).text_color(cx.theme().muted_foreground).child(status))
-            .child(div().flex_1().min_w_0().truncate().when(viewed, |d| d.text_color(cx.theme().muted_foreground)).child(file_label(name.into(), cx)))
+            .child(div().flex_1().min_w_0().truncate().when(viewed, |d| d.text_color(cx.theme().muted_foreground)).child(marked_label(name.into(), Some(mark), viewed, cx)))
             .children(self.agent_mark(&file.path))
             .when(viewed, |row| row.child(div().text_xs().text_color(gpui_kit::green()).child("✓")))
             .child(div().text_xs().text_color(gpui_kit::green()).child(format!("+{}", file.additions)))
