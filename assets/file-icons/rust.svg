@@ -1,0 +1,14 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="8" cy="8" r="5.4" stroke="#E66D17" stroke-width="1.2"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(0.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(36.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(72.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(108.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(144.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(180.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(216.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(252.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(288.0 8 8)"/>
+<rect x="7.2" y="0.8000000000000002" width="1.6" height="1.8" rx="0.4" fill="#E66D17" transform="rotate(324.0 8 8)"/>
+<path d="M6 11V5.2H8.5C9.33 5.2 10 5.87 10 6.7C10 7.53 9.33 8.2 8.5 8.2H6M8.4 8.2L10.2 11" stroke="#E66D17" stroke-width="1.2" stroke-linejoin="round"/>
+</svg>

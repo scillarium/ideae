@@ -9,6 +9,7 @@ mod build_watch;
 mod daemon;
 mod desktop;
 mod edit;
+mod file_icons;
 mod finder;
 mod git;
 mod grammars;

@@ -1734,13 +1734,15 @@ impl TaskView {
             tree(&self.tree, move |ix, entry, selected, _, cx| {
                 let item = entry.item();
                 let label = if entry.is_folder() { StyledText::new(item.label.clone()) } else { file_label(item.label.clone(), cx) };
-                let icon = if !entry.is_folder() {
-                    IconName::File
-                } else if entry.is_expanded() {
-                    IconName::FolderOpen
-                } else {
-                    IconName::Folder
-                };
+                // Folders have one icon, open or not; the chevron before it tells.
+                let chevron = div().size_4().flex_none().flex().items_center().justify_center().when(entry.is_folder(), |this| {
+                    let chevron = if entry.is_expanded() { IconName::ChevronDown } else { IconName::ChevronRight };
+                    this.child(gpui_kit::component::Icon::new(chevron).size_3p5().text_color(cx.theme().muted_foreground))
+                });
+                let icon = crate::file_icons::icon(
+                    if entry.is_folder() { crate::file_icons::folder(&item.label) } else { crate::file_icons::file(&item.label) },
+                    cx,
+                );
                 let is_changed = changed.contains(&item.id);
                 // The agent's work shows in place of the plain "changed" dot;
                 // a folder leads to the file being written.
@@ -1761,12 +1763,13 @@ impl TaskView {
                     .w_full()
                     .py_0p5()
                     .px_2()
-                    .pl(px(12.) * entry.depth() + px(8.))
+                    .pl(px(16.) * entry.depth() + px(4.))
                     .selected(selected)
                     .child(
                         h_flex()
-                            .gap_2()
+                            .gap_1p5()
                             .text_sm()
+                            .child(chevron)
                             .child(icon)
                             .child(div().truncate().child(label))
                             .when(is_changed && agent.is_none(), |this| this.child(div().text_xs().text_color(gpui_kit::green()).child("●")))
