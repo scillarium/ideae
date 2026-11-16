@@ -511,6 +511,7 @@ fn parse_status(out: &str) -> Status {
             if let Some((x, y, path)) = changed(fields) {
                 let change = match (kind, x, y) {
                     (b'u', ..) => Change::Conflict,
+                    (_, b'D', _) | (_, _, b'D') => Change::Deleted,
                     (_, b'A', _) | (_, _, b'A') => Change::Added,
                     _ => Change::Modified,
                 };
@@ -1008,6 +1009,8 @@ pub enum Change {
     /// New, and not added.
     Untracked,
     Conflict,
+    /// Gone from disk, git has it still.
+    Deleted,
 }
 
 /// Runs a command in `root` for a user action: stdout on success, stderr (or
@@ -2398,6 +2401,7 @@ mod refresh_tests {
         let out = "# branch.oid abc\0# branch.head task\0# branch.upstream origin/task\0# branch.ab +2 -1\0\
             1 .M N... 100644 100644 100644 aaa bbb src/a b.rs\0\
             1 A. N... 000000 100644 100644 000 bbb new.rs\0\
+            1 .D N... 100644 100644 000000 aaa aaa gone.rs\0\
             2 R. N... 100644 100644 100644 aaa bbb R100 to here.rs\0from.rs\0\
             u UU N... 100644 100644 100644 100644 a b c both.rs\0\
             ? notes/todo.md\0! target/\0! .env\0";
@@ -2410,11 +2414,11 @@ mod refresh_tests {
         assert_eq!(state("to here.rs"), Some((true, false)));
         assert_eq!(state("both.rs"), Some((true, true)));
         assert_eq!(state("notes/todo.md"), Some((false, true)));
-        assert_eq!((status.states.len(), status.untracked.as_slice()), (5, ["notes/todo.md".to_string()].as_slice()));
+        assert_eq!((status.states.len(), status.untracked.as_slice()), (6, ["notes/todo.md".to_string()].as_slice()));
         let change = |path: &str| status.states.get(path).map(|s| s.change);
         assert_eq!(
-            ["src/a b.rs", "new.rs", "to here.rs", "both.rs", "notes/todo.md"].map(change),
-            [Change::Modified, Change::Added, Change::Modified, Change::Conflict, Change::Untracked].map(Some)
+            ["src/a b.rs", "new.rs", "to here.rs", "both.rs", "notes/todo.md", "gone.rs"].map(change),
+            [Change::Modified, Change::Added, Change::Modified, Change::Conflict, Change::Untracked, Change::Deleted].map(Some)
         );
         assert_eq!(status.ignored, ["target/", ".env"]);
     }

@@ -98,7 +98,24 @@ pub fn file(name: &str) -> &'static str {
     }
 }
 
+/// Names already seen, and their file icons: the tree asks on every frame.
+const NAMES_KEPT: usize = 4096;
+
+/// `file` of a name, kept from the last time it was asked.
+pub fn file_kept(name: &SharedString) -> &'static str {
+    NAMES.with_borrow_mut(|names| {
+        if let Some(icon) = names.get(name) {
+            return *icon;
+        }
+        if names.len() >= NAMES_KEPT {
+            names.clear();
+        }
+        *names.entry(name.clone()).or_insert_with(|| file(name))
+    })
+}
+
 thread_local! {
+    static NAMES: RefCell<HashMap<SharedString, &'static str>> = RefCell::new(HashMap::new());
     static IMAGES: RefCell<HashMap<(&'static str, bool), Arc<Image>>> = RefCell::new(HashMap::new());
 }
 

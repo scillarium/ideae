@@ -337,7 +337,7 @@ fn pages(draft: &Draft, recording: &Rc<Cell<Option<&'static str>>>, catcher: &Rc
                     .item(switch(
                         draft,
                         "Hide files git ignores",
-                        "A file git ignores (keys, local settings) shows a notice in place of what it holds, until you ask for it.",
+                        "A file git ignores (keys, local settings) is left out of the Files tree, and shows a notice in place of what it holds until you ask for it.",
                         |s| s.present_veil,
                         |s, v| s.present_veil = v,
                     ))

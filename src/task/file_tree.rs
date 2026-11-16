@@ -15,7 +15,7 @@ pub(super) enum Mark {
     Untracked,
     Conflict,
     Ignored,
-    /// Gone from disk: only the Changes list shows it.
+    /// Gone from disk: the Changes list shows it, the tree leaves it out.
     Deleted,
 }
 
@@ -23,9 +23,11 @@ impl Mark {
     fn color(self, cx: &App) -> Hsla {
         let theme = cx.theme();
         let dark = theme.mode.is_dark();
+        // On a light background the themes' blue and green are pale for text.
+        let deepen = |color: Hsla| if dark { color } else { hsla(color.h, color.s, color.l * 0.8, color.a) };
         match self {
-            Mark::Modified => theme.blue,
-            Mark::Added => theme.green,
+            Mark::Modified => deepen(theme.blue),
+            Mark::Added => deepen(theme.green),
             Mark::Conflict => theme.red,
             // Brown-red as JetBrains' "unversioned", apart from a conflict's red.
             Mark::Untracked => {
@@ -60,6 +62,7 @@ impl From<git::Change> for Mark {
             git::Change::Added => Mark::Added,
             git::Change::Untracked => Mark::Untracked,
             git::Change::Conflict => Mark::Conflict,
+            git::Change::Deleted => Mark::Deleted,
         }
     }
 }
@@ -111,6 +114,7 @@ fn filler(folder: &str, what: &str) -> TreeItem {
 /// to be read.
 pub(super) fn build_tree(
     files: &[String],
+    gone: &HashSet<String>,
     ignored: &[String],
     listed: &HashMap<SharedString, Listing>,
     expanded: &HashSet<SharedString>,
@@ -138,7 +142,8 @@ pub(super) fn build_tree(
             }
         }
     };
-    files.iter().chain(ignored).for_each(&mut add);
+    // Deleted and not staged so, git lists it still: not on disk, not in the tree.
+    files.iter().filter(|file| !gone.contains(*file)).chain(ignored).for_each(&mut add);
 
     fn from_disk(id: &SharedString, listed: &HashMap<SharedString, Listing>, expanded: &HashSet<SharedString>, unread: &mut Vec<SharedString>) -> Vec<TreeItem> {
         let Some(entries) = listed.get(id) else {
@@ -221,8 +226,28 @@ impl TaskView {
         cx.notify();
     }
 
-    pub(super) fn mark_tree(&mut self) {
+    /// Whether the files gone from disk are others: the tree is to be built again.
+    pub(super) fn mark_tree(&mut self) -> bool {
         self.tree_marks = Rc::new(tree_marks(&self.file_states, &self.tree_files));
+        let gone: HashSet<String> = self.file_states.iter().filter(|(_, state)| state.change == git::Change::Deleted).map(|(path, _)| path.clone()).collect();
+        if *self.tree_gone == gone {
+            return false;
+        }
+        self.tree_gone = Rc::new(gone);
+        true
+    }
+
+    /// While presenting with ignored files hidden, the tree leaves them out:
+    /// their names (`.env.local`) tell enough.
+    pub(super) fn hide_ignored_in_tree(&mut self, cx: &mut Context<Self>) {
+        let hide = crate::workspace::present::on() && crate::state::with_settings(|s| s.present_veil);
+        if hide != self.tree_hides_ignored {
+            self.tree_hides_ignored = hide;
+            self.ignored_listed.clear();
+            self.tree_stale = true;
+            self.fill_tree(cx);
+            cx.notify();
+        }
     }
 
     pub(super) fn tree_expanded(&mut self, id: &SharedString, cx: &mut Context<Self>) {
@@ -270,7 +295,8 @@ impl TaskView {
         let shown = self.visible && self.right == RightPane::Files;
         if self.tree_stale && shown {
             self.tree_stale = false;
-            let (items, unread) = build_tree(&self.tree_files, &self.tree_ignored, &self.ignored_listed, &self.expanded);
+            let ignored: &[String] = if self.tree_hides_ignored { &[] } else { &self.tree_ignored };
+            let (items, unread) = build_tree(&self.tree_files, &self.tree_gone, ignored, &self.ignored_listed, &self.expanded);
             self.tree.update(cx, |t, cx| t.set_items(items, cx));
             for id in unread {
                 self.list_ignored(id, cx);
@@ -287,7 +313,7 @@ impl TaskView {
         let view = cx.weak_entity();
         let root = self.root.clone();
         let marks = self.tree_marks.clone();
-        let ignored = self.tree_ignored.clone();
+        let ignored = if self.tree_hides_ignored { Rc::default() } else { self.tree_ignored.clone() };
         let touched = self.agent_touched.clone();
         let editing = self.agent_editing.clone();
         div().flex_1().min_h_0().child(
@@ -309,7 +335,7 @@ impl TaskView {
                     let chevron = if entry.is_expanded() { IconName::ChevronDown } else { IconName::ChevronRight };
                     this.child(gpui_kit::component::Icon::new(chevron).size_3p5().text_color(cx.theme().muted_foreground))
                 });
-                let icon = crate::file_icons::icon(if folder { crate::file_icons::folder(&item.label) } else { crate::file_icons::file(&item.label) }, cx);
+                let icon = crate::file_icons::icon(if folder { crate::file_icons::folder(&item.label) } else { crate::file_icons::file_kept(&item.label) }, cx);
                 // The agent's work; a folder leads to the file being written.
                 let on_the_way = editing.as_deref().is_some_and(|e| e.strip_prefix(item.id.as_ref()).is_some_and(|rest| rest.is_empty() || (folder && !rest.is_empty())));
                 let agent = if on_the_way && !folder {
@@ -382,18 +408,22 @@ mod tests {
         let ignored: Vec<String> = ["target/", "web/node_modules/", ".env"].map(String::from).to_vec();
         let ids = |items: &[TreeItem]| items.iter().map(|i| i.id.to_string()).collect::<Vec<_>>();
         let mut expanded = HashSet::new();
-        let (items, unread) = build_tree(&files, &ignored, &HashMap::new(), &expanded);
+        let gone: HashSet<String> = ["src/main.rs".to_string()].into();
+        let (items, _) = build_tree(&files, &gone, &ignored, &HashMap::new(), &expanded);
+        assert_eq!(ids(&items), ["target/", "web/", ".env"], "a deleted file is not in the tree");
+        let none = HashSet::new();
+        let (items, unread) = build_tree(&files, &none, &ignored, &HashMap::new(), &expanded);
         assert_eq!(ids(&items), ["src/", "target/", "web/", ".env"]);
         assert_eq!(ids(&items[1].children), ["target/\0"], "not read yet");
         assert!(unread.is_empty(), "nothing open");
         assert_eq!(ids(&items[2].children), ["web/node_modules/", "web/app.js"]);
 
         expanded.insert(SharedString::from("target/"));
-        let (_, unread) = build_tree(&files, &ignored, &HashMap::new(), &expanded);
+        let (_, unread) = build_tree(&files, &none, &ignored, &HashMap::new(), &expanded);
         assert_eq!(unread, [SharedString::from("target/")]);
 
         let listed: HashMap<SharedString, Listing> = [(SharedString::from("target/"), Rc::new(vec![("debug".into(), true), ("x.log".into(), false)]))].into();
-        let (items, unread) = build_tree(&files, &ignored, &listed, &expanded);
+        let (items, unread) = build_tree(&files, &none, &ignored, &listed, &expanded);
         assert!(unread.is_empty());
         assert_eq!(ids(&items[1].children), ["target/debug/", "target/x.log"]);
         assert_eq!(ids(&items[1].children[0].children), ["target/debug/\0"]);

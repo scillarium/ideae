@@ -347,6 +347,7 @@ impl TaskView {
     /// Marks the open files git ignores: while presenting they show a
     /// notice in place of what they hold, until asked for.
     pub fn veil_ignored(&mut self, cx: &mut Context<Self>) {
+        self.hide_ignored_in_tree(cx);
         let files: Vec<Entity<FileView>> = self.tabs.iter().filter_map(|tab| match &tab.kind {
             TabKind::File(file) => Some(file.clone()),
             _ => None,

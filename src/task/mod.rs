@@ -366,6 +366,10 @@ pub struct TaskView {
     /// The ignored folders open in the tree, as read from disk.
     ignored_listed: HashMap<SharedString, Listing>,
     ignored_reading: HashSet<SharedString>,
+    /// Deleted, and still known to git: left out of the tree.
+    tree_gone: Rc<HashSet<String>>,
+    /// Presenting with ignored files hidden: none in the tree.
+    tree_hides_ignored: bool,
     /// Folders folded in the Changes tree, as "staged:dir" / "changes:dir".
     folded_changes: HashSet<String>,
     /// Out of view long enough (or never shown): no language servers run;
@@ -523,7 +527,10 @@ impl TaskView {
                     }
                     if this.file_states != states {
                         this.file_states = states;
-                        this.mark_tree();
+                        if this.mark_tree() {
+                            this.tree_stale = true;
+                            this.fill_tree(cx);
+                        }
                         cx.notify();
                     }
                     if this.stashes != stashes {
@@ -636,6 +643,8 @@ impl TaskView {
             tree_ignored: Rc::default(),
             ignored_listed: HashMap::new(),
             ignored_reading: HashSet::new(),
+            tree_gone: Rc::default(),
+            tree_hides_ignored: false,
             folded_changes: HashSet::new(),
             lsp_asleep: false,
             file_states: HashMap::new(),

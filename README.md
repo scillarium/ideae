@@ -262,6 +262,11 @@ closed products too; changes to its files stay open under the same license.
 `gpui-cn` (Apache-2.0, licenses kept in each directory). Changed places are
 marked `ideae patch`.
 
+`assets/file-icons` holds file type icons from
+[IntelliJ IDEA Community Edition](https://github.com/JetBrains/intellij-community)
+(Apache-2.0, unchanged; its NOTICE and the license kept beside them); the Go,
+PHP and Rust ones were drawn for ideae in their style.
+
 `vendor/tree-sitter-twig` is the generated parser of
 [tree-sitter-twig](https://github.com/gbprod/tree-sitter-twig) (MIT, license
 kept beside it). `queries/julia-highlights.scm` and

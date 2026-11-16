@@ -156,7 +156,7 @@ impl TaskView {
             (stem.len() > 2 && stem.chars().next()?.is_ascii_uppercase()).then(|| stem.to_string())
         }));
         self.tree_files = files;
-        self.mark_tree();
+        let _ = self.mark_tree();
         self.tree_stale = true;
         if crate::workspace::present::on() {
             self.veil_ignored(cx);
