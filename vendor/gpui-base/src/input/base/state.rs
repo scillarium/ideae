@@ -5217,8 +5217,12 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                 }
             })
             .on_action(window.listener_for(&entity, InputBaseState::copy))
-            .on_action(window.listener_for(&entity, InputBaseState::on_action_search))
-            .on_action(window.listener_for(&entity, InputBaseState::on_action_replace))
+            // ideae patch: on the way only where there is a search to open, so a
+            // menu bar item for them is grey in a plain field; the keys still reach the host.
+            .when(self.searchable, |this| {
+                this.on_action(window.listener_for(&entity, InputBaseState::on_action_search))
+                    .on_action(window.listener_for(&entity, InputBaseState::on_action_replace))
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 window.listener_for(&entity, InputBaseState::on_mouse_down),

@@ -124,6 +124,13 @@ impl WindowState {
         window.root::<gpui_base::Root>()??.read(cx).plugin::<Self>()
     }
 
+    /// ideae patch: whether a dialog is up in this window, told later without
+    /// the window, which an action being dispatched in it holds.
+    pub(crate) fn dialogs(window: &Window, cx: &App) -> Option<Box<dyn Fn(&App) -> bool>> {
+        let state = Self::entity(window, cx)?.downgrade();
+        Some(Box::new(move |cx: &App| state.upgrade().is_some_and(|s| s.read(cx).active_dialogs.iter().any(|d| !d.closing))))
+    }
+
     fn allocate_text_selection_scope(&mut self) -> TextSelectionScopeId {
         TextSelectionScopeId::new()
     }

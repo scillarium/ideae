@@ -767,6 +767,34 @@ impl BrowserView {
         }
     }
 
+    /// One of Chrome's editing commands with the Cmd key that does it on a
+    /// Mac: the page sees the key and may do its own, else Chrome does this.
+    fn edit(&self, command: &str, letter: char, shift: bool) {
+        let c = letter.to_ascii_uppercase();
+        let key = if shift { c.to_string() } else { letter.to_string() };
+        let modifiers = 4 | if shift { 8 } else { 0 };
+        let event = |kind: &str| json!({ "type": kind, "key": key, "code": format!("Key{c}"), "windowsVirtualKeyCode": c as u32, "modifiers": modifiers });
+        let mut down = event("rawKeyDown");
+        down["commands"] = json!([command]);
+        self.command("Input.dispatchKeyEvent", down);
+        self.command("Input.dispatchKeyEvent", event("keyUp"));
+    }
+
+    /// Copies the selection, and takes it out of the page only once it is
+    /// on the clipboard: one in a frame is not seen from the page's top.
+    fn cut(&mut self, cx: &mut Context<Self>) {
+        let selected = self.eval_string("window.getSelection().toString()", cx);
+        cx.spawn(async move |this, cx| {
+            if let Some(text) = selected.await.filter(|t| !t.is_empty()) {
+                let _ = this.update(cx, |this, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    this.edit("delete", 'x', false);
+                });
+            }
+        })
+        .detach();
+    }
+
     fn command(&self, method: &'static str, params: Value) {
         let _ = self.out.send(Out::Command(method, params));
     }
@@ -796,10 +824,21 @@ impl BrowserView {
         if self.picking && keystroke.key == "escape" {
             return self.set_picking(false, cx);
         }
-        if m.control && !m.alt && !m.shift {
+        let cmd = cfg!(target_os = "macos") && m.platform;
+        if (m.control || cmd) && !m.alt && !m.shift {
             match keystroke.key.as_str() {
                 "c" => return self.copy(cx),
                 "v" => return self.paste(cx),
+                _ => {}
+            }
+        }
+        // Cmd on a Mac: Chrome is told what to do, it does not know the key.
+        if cmd && !m.alt && !m.control {
+            match (keystroke.key.as_str(), m.shift) {
+                ("x", false) => return self.cut(cx),
+                ("a", false) => return self.edit("selectAll", 'a', false),
+                ("z", false) => return self.edit("undo", 'z', false),
+                ("z", true) => return self.edit("redo", 'z', true),
                 _ => {}
             }
         }
@@ -879,6 +918,13 @@ impl Render for BrowserView {
             .on_action(cx.listener(|this, _: &BrowserReload, _, _| this.command("Page.reload", json!({}))))
             .on_action(cx.listener(|this, _: &BrowserCopy, _, cx| this.copy(cx)))
             .on_action(cx.listener(|this, _: &BrowserPaste, _, cx| this.paste(cx)))
+            // The menu bar's Edit items are the editor's actions: here they are the page's.
+            .on_action(cx.listener(|this, _: &gpui_kit::component::input::Copy, _, cx| this.copy(cx)))
+            .on_action(cx.listener(|this, _: &gpui_kit::component::input::Paste, _, cx| this.paste(cx)))
+            .on_action(cx.listener(|this, _: &gpui_kit::component::input::Cut, _, cx| this.cut(cx)))
+            .on_action(cx.listener(|this, _: &gpui_kit::component::input::SelectAll, _, _| this.edit("selectAll", 'a', false)))
+            .on_action(cx.listener(|this, _: &gpui_kit::component::input::Undo, _, _| this.edit("undo", 'z', false)))
+            .on_action(cx.listener(|this, _: &gpui_kit::component::input::Redo, _, _| this.edit("redo", 'z', true)))
             .on_action(cx.listener(|this, _: &BrowserCopyUrl, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(this.url.to_string()))
             }))

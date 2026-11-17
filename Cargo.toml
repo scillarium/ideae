@@ -56,6 +56,13 @@ tungstenite = "0.30"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The menu bar's items are told their state when a menu opens (vendored, see [patch]).
+gpui-fast-macos = "0.1.12"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSMenu", "NSMenuItem", "NSImage", "NSWindow", "NSPanel"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDictionary", "NSString", "NSData", "NSUserDefaults", "NSValue"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -78,6 +85,8 @@ opt-level = 2
 # diff/mod.rs patched: the header of the file under the top edge sticks there.
 # highlighter/languages.rs + registry.rs patched: Swift, C#, CMake, Proto, GraphQL get highlights;
 # capture names of older queries (@conditional, @field…) take the colors themes define.
+# root.rs + lib.rs patched: dialogs_watch, whether a dialog is up, told while the window
+# dispatches an action and cannot be entered (the menu bar's keys go on to its fields).
 [patch.crates-io]
 gpui-component = { path = "vendor/gpui-component" }
 # terminal/core.rs + engine.rs patched: report light/dark (CSI ? 996 n, mode 2031).
@@ -87,7 +96,14 @@ gpui-cn = { path = "vendor/gpui-cn" }
 # a jump lands a third down the viewport unless already in view.
 # input/base/gutter.rs (new) + state.rs + element.rs + layout.rs patched: notes left of the
 # line numbers (blame) with hover and click, and bookmarked lines that follow edits.
+# input/base/state.rs patched: Search and Replace handlers only on a searchable input, so the
+# menu bar's Find items are grey in a plain field.
 gpui-base = { path = "vendor/gpui-base" }
+# platform.rs patched: set_menus listed every item's action again on each call and never
+# dropped the old ones; an action already listed now keeps its tag. set_menu_hooks: the app
+# tells each item's state, title and check mark when its menu opens (menuNeedsUpdate,
+# validateMenuItem), so the menus are made once, not again whenever what they show changes.
+gpui-fast-macos = { path = "vendor/gpui-fast-macos" }
 
 [dev-dependencies]
 gpui-kit = { version = "0.8.1", features = ["test-support"] }

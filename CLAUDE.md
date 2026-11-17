@@ -42,6 +42,8 @@ src/task/          one task, a module: what is private to it is seen by all of i
   change_tree.rs   the changed files as a tree
   file_tree.rs     the Files panel: names colored by git status, ignored folders read when opened
   helpers.rs       patches parsed for the panels, outline, symbol search, definition providers
+src/menu.rs        the macOS menu bar, kept short: tasks, git and the window, not the editor's commands
+src/commands.rs    the commands on a task, its project, its variants, its git: names and what allows them, for the menu bar, the sidebar and the palette
 src/file_icons.rs  file and folder icons (assets/file-icons, JetBrains' new UI), by name
 src/state.rs       state.json; APP_ID (ideae vs ideae-dev)
 src/archive.rs     an archived task's .tar.gz (task.json, sessions, unpushed bundle, patch): write, list, restore, clean up
@@ -62,7 +64,7 @@ src/desktop.rs     launcher entry, dash pin, restart, `--install` / `--uninstall
 src/naming.rs      branch names from task titles
 src/services.rs    `.ideae.toml` services (Run ▾): per-task port slots, IDEAE_PORT_<NAME>
 src/project_config.rs  `.ideae.toml` [task] (setup, teardown, check, copy), your own over the file, suggestions, runs
-vendor/            patched gpui-component, gpui-base, gpui-cn; changes marked `ideae patch`
+vendor/            patched gpui-component, gpui-base, gpui-cn, gpui-fast-macos; changes marked `ideae patch`
 assets/icon/       the app icon: ideae.svg, and the .icns and .ico made from it by scripts/icons.py
 scripts/           Xvfb driver for UI checks, check.sh (the tests to run before a push), icons.py, macos-app.sh (a .app around a binary)
 ```

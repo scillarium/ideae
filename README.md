@@ -87,8 +87,8 @@ products too; changes to its files stay open under the same license.
 
 ## Third-party code
 
-`vendor/` holds patched copies of `gpui-component`, `gpui-base` and `gpui-cn`
-(Apache-2.0, licenses kept in each directory). Changed places are marked
+`vendor/` holds patched copies of `gpui-component`, `gpui-base`, `gpui-cn` and
+`gpui-fast-macos` (Apache-2.0, licenses kept in each directory). Changed places are marked
 `ideae patch`.
 
 `assets/file-icons` holds file type icons from

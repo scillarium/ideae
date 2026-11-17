@@ -63,6 +63,7 @@ pub use file::*;
 pub use changes::*;
 pub use session::*;
 pub use annotate::ToggleBlame;
+pub use git_ui::GitCommand;
 pub use bookmarks::{NextBookmark, PrevBookmark, ShowBookmarks, ToggleBookmark};
 use change_tree::*;
 use pr::*;
@@ -80,6 +81,27 @@ enum TabKind {
     Binary(Entity<BinaryView>),
     /// The worktree against a commit, a branch or a stash: not kept over a restart.
     Diff(Entity<DiffTab>),
+}
+
+/// What the menu bar's tab items have to act on.
+pub struct TabsState {
+    pub closable: bool,
+    pub file: bool,
+    pub back: bool,
+    pub forward: bool,
+    pub reopen: bool,
+    pub front: Option<FrontTab>,
+    /// None while no side panel is in view: in focus mode, or a narrow window's hidden one.
+    pub panel: Option<RightPane>,
+}
+
+/// The tabs the menu bar names, when one is in front.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum FrontTab {
+    Agent,
+    Changes,
+    History,
+    Shell,
 }
 
 pub struct BinaryView {
@@ -141,8 +163,8 @@ impl Render for DraggedTab {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum RightPane {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum RightPane {
     Changes,
     Files,
     /// The declarations of the file last in view.
@@ -943,6 +965,46 @@ impl TaskView {
         cx.notify();
     }
 
+    /// What Restart Agent asks: its program is not running in its tab.
+    pub fn agent_restartable(&self, cx: &App) -> bool {
+        self.has_agent()
+            && self.tabs.iter().any(|t| t.title == "agent" && matches!(&t.kind, TabKind::Terminal(v) if v.read(cx).agent_at_prompt(cx)))
+    }
+
+    pub fn focus_mode(&self) -> bool {
+        self.zoomed.is_some()
+    }
+
+    pub fn tabs_state(&self) -> TabsState {
+        let focused = self.focused_ix();
+        let front = focused.map(|ix| &self.tabs[ix]);
+        let agent = |t: &TabItem| t.title == "agent" && matches!(t.kind, TabKind::Terminal(_));
+        // The terminal Shell goes to: another one in front is not it.
+        let shell = self.tabs.iter().position(|t| t.title != "agent" && matches!(t.kind, TabKind::Terminal(_)));
+        TabsState {
+            closable: front.is_some_and(|t| !agent(t)),
+            file: front.is_some_and(|t| matches!(t.kind, TabKind::File(_))),
+            back: self.can_navigate(true),
+            forward: self.can_navigate(false),
+            reopen: !self.closed.is_empty(),
+            front: front.and_then(|t| match &t.kind {
+                TabKind::Terminal(_) if agent(t) => Some(FrontTab::Agent),
+                TabKind::Changes => Some(FrontTab::Changes),
+                TabKind::History => Some(FrontTab::History),
+                TabKind::Terminal(_) if focused == shell => Some(FrontTab::Shell),
+                _ => None,
+            }),
+            panel: (self.zoomed.is_none() && (!self.narrow || self.side_over)).then_some(self.right),
+        }
+    }
+
+    /// Out of focus mode, for what comes up in the task's own layout.
+    pub fn leave_focus_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.zoomed.is_some() {
+            self.toggle_zoom_focused(window, cx);
+        }
+    }
+
     /// The zoomed pane, for the window to float over everything. While it is
     /// up, the task's own layout leaves that pane's slot empty: a view (a
     /// terminal above all) is drawn in one place only.
@@ -1452,7 +1514,7 @@ impl TaskView {
         }
     }
 
-    fn focus_active(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn focus_active(&self, window: &mut Window, cx: &mut Context<Self>) {
         // A task out of view has nothing the keyboard can go to: asked for
         // there (a tab restored at the start, a prompt sent as its agent's turn
         // ends), the focus would leave the task that is typed in for nothing
@@ -1755,6 +1817,16 @@ impl TaskView {
     /// Alt+1/2/3: shows the panel and moves the keyboard there. Arrows move,
     /// Enter opens, Escape goes back to the tab.
     pub fn show_side_panel(&mut self, which: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_focus_mode(window, cx);
+        self.reveal_side_panel(which, cx);
+        match self.right {
+            RightPane::Files => self.tree.update(cx, |t, cx| t.focus(window, cx)),
+            _ => self.side_focus.focus(window, cx),
+        }
+    }
+
+    /// The panel comes up and the keyboard stays where it is.
+    pub fn reveal_side_panel(&mut self, which: usize, cx: &mut Context<Self>) {
         self.side_over = true;
         self.right = match which {
             0 => RightPane::Changes,
@@ -1773,10 +1845,6 @@ impl TaskView {
             _ => 0,
         };
         self.structure_select = self.right == RightPane::Structure && !self.structure_ready();
-        match self.right {
-            RightPane::Files => self.tree.update(cx, |t, cx| t.focus(window, cx)),
-            _ => self.side_focus.focus(window, cx),
-        }
         cx.notify();
     }
 

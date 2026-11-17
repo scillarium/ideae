@@ -366,7 +366,11 @@ fn pages(draft: &Draft, recording: &Rc<Cell<Option<&'static str>>>, catcher: &Rc
                 .description("Add, name, mark and remove them. Which space a project is of is set from its menu in the sidebar."),
             )),
         SettingPage::new("Presentation").default_open(true)
-            .description("For showing the window to others: ☰ → Enter presentation mode leaves in it only the tasks you tick.")
+            .description(if cfg!(target_os = "macos") {
+                "For showing the window to others: View → Presentation Mode… leaves in it only the tasks you tick."
+            } else {
+                "For showing the window to others: ☰ → Enter presentation mode leaves in it only the tasks you tick."
+            })
             .group(
                 SettingGroup::new().title("Shown larger").item(
                     SettingItem::new("Text size", present_zoom)
@@ -692,8 +696,12 @@ fn key_groups(
     use crate::keymap::{SHORTCUTS, display};
     let d = draft.borrow().clone();
     let effective = |id: &str, default: String| d.keys.get(id).cloned().unwrap_or(default);
-    let all: Vec<(&'static str, &'static str, String)> =
+    let mut all: Vec<(&'static str, &'static str, String)> =
         SHORTCUTS.iter().map(|s| (s.id, s.name, effective(s.id, s.default_keys()))).collect();
+    // macOS's own: a shortcut given one of them is told so.
+    if cfg!(target_os = "macos") {
+        all.extend(crate::menu::SYSTEM_KEYS.iter().map(|&(keys, name)| (name, name, keys.to_string())));
+    }
     let item = |shortcut: &'static crate::keymap::Shortcut| {
         let id = shortcut.id;
         let keys = effective(id, shortcut.default_keys());

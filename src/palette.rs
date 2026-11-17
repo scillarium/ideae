@@ -239,6 +239,33 @@ impl Workspace {
             to_spaces.extend(self.spaces.iter().map(|space| go(format!("Space: {}", space.name), Some(space.name.clone()))));
         }
         to_spaces.push(own("Spaces…", "space: add, name, remove", |w, window, cx| w.spaces_dialog(window, cx)));
+        // The task's own and git's, where the task in hand has them to do.
+        let mut of_task: Vec<Entry> = Vec::new();
+        let of_git: Vec<Entry>;
+        {
+            use crate::commands::TaskCommand as T;
+            use crate::task::GitCommand as G;
+            // On the variants' screen the card in hand, which the command acts on.
+            let hand = self.in_hand(cx);
+            let starred = hand.is_some_and(|t| t.starred);
+            let task = |what: T| {
+                let this = this.clone();
+                Entry::new(crate::commands::sentence(what.name(starred)), move |window, cx| {
+                    let _ = this.update(cx, |w, cx| w.task_command(what, window, cx));
+                })
+                .detail(what.hint())
+            };
+            let git = |what: G| {
+                let this = this.clone();
+                Entry::new(crate::commands::sentence(crate::commands::git_name(what)), move |window, cx| {
+                    let _ = this.update(cx, |w, cx| w.git_command(what, window, cx));
+                })
+                .detail(crate::commands::git_hint(what))
+            };
+            use T::*;
+            of_task.extend([NewTerminal, NewBrowserTab, RestartAgent, CompareThisFile, Star, CopyBranchName, Rename, AnotherVariant, KeepVariant, StartServices, StopServices, Pause, Archive, RemoveSide].into_iter().filter(|what| hand.is_some_and(|t| t.allows(*what))).map(task));
+            of_git = G::ALL.into_iter().filter(|what| hand.is_some_and(|t| t.git(*what))).map(git).collect();
+        }
         let mut entries = vec![
             keyed("New task…", "new_task", "task"),
             keyed("Next waiting task", "next_waiting", "task: an agent that asks or is done"),
@@ -248,17 +275,12 @@ impl Workspace {
                 if e.is_empty() { e } else { format!("{e} {e}") }
             }),
             own("Add project…", "task", |w, window, cx| w.add_project_dialog(window, cx)),
-            own("Archive merged tasks…", "task: of the project in view", |w, window, cx| {
-                if let Some(project) = w.active_project() {
+            own("Archive merged tasks…", "task: of the project in hand", |w, window, cx| {
+                if let Some(project) = w.project_in_hand() {
                     w.archive_merged(project, window, cx);
                 }
             }),
             own("Archived tasks…", "task: search, restore, delete", |w, window, cx| w.archived_dialog(None, window, cx)),
-            own("Archive task", "task: the one in view", |w, window, cx| {
-                if let Some(path) = w.active.clone() {
-                    w.archive_task(&path, window, cx);
-                }
-            }),
             keyed("Go to file…", "go_to_file", "go to"),
             keyed("Go to class or symbol…", "go_to_symbol", "go to: anywhere in the project"),
             keyed("Find in files…", "find_in_files", "go to"),
@@ -274,9 +296,6 @@ impl Workspace {
             keyed("Changes", "changes", "view: the diff"),
             keyed("History", "history", "view: the branch's commits"),
             keyed("Shell", "shell", "view: terminal"),
-            Entry::new("New terminal", with_task(task::TaskView::new_terminal)).detail("view"),
-            Entry::new("New browser tab", with_task(task::TaskView::new_browser)).detail("view: web"),
-            Entry::new("Restart agent", with_task(task::TaskView::restart_agent)).detail("view"),
             keyed("Next tab", "next_tab", "view"),
             keyed("Previous tab", "prev_tab", "view"),
             keyed("Focus mode", "focus_mode", "view: zoom the pane"),
@@ -285,8 +304,7 @@ impl Workspace {
             keyed("Structure panel", "structure_panel", "panel"),
             keyed("Run panel", "run_panel", "panel: services, dev servers, workers"),
             keyed("Branches…", "branches", "git: open as a task, compare, delete"),
-            Entry::new("Compare with a branch, tag or commit…", with_task(|t, window, cx| t.compare_with_dialog(None, window, cx))).detail("git: the working tree"),
-            Entry::new("Compare this file with…", with_task(|t, window, cx| t.compare_open_file(window, cx))).detail("git: the file in the editor"),
+            Entry::new(crate::commands::sentence(crate::commands::TaskCommand::CompareWithBranch.name(false)), with_task(|t, window, cx| t.compare_with_dialog(None, window, cx))).detail("git: the working tree"),
             keyed("Complete here", "complete", "editor"),
             keyed("Quick fixes", "quick_fix", "editor: what the language server offers"),
             keyed("Rename…", "rename", "editor: the symbol, everywhere"),
@@ -306,15 +324,18 @@ impl Workspace {
             own("Dark theme", "window", |w, window, cx| w.set_appearance(crate::theme::Appearance::Dark, window, cx)),
             own("Theme as the system", "window: light by day, dark by night", |w, window, cx| w.set_appearance(crate::theme::Appearance::Auto, window, cx)),
             own("Text of its usual size", "window: editor, diff and terminal", |_, _, cx| crate::zoom::reset_all(cx)),
-            own(if presenting { "End presentation" } else { "Enter presentation mode…" }, "window: only the tasks chosen", |w, window, cx| {
-                if w.is_presenting() { w.end_presentation(window, cx) } else { w.presentation_dialog(window, cx) }
-            }),
-            own(if saving { "Leave power saving" } else { "Save power" }, "window: language servers and background work", |w, _, cx| w.toggle_power_saving(cx)),
+            own(if presenting { "End presentation" } else { "Enter presentation mode…" }, "window: only the tasks chosen", |w, window, cx| w.toggle_presentation(window, cx)),
+            own(if saving { "Leave power save mode" } else { "Power save mode" }, "window: language servers and background work", |w, _, cx| w.toggle_power_saving(cx)),
             keyed("Settings…", "settings", "app"),
             own("Keyboard shortcuts…", "app", |w, window, cx| w.open_settings_at(crate::settings_ui::KEYS_PAGE, window, cx)),
             own("Restart", "app", |w, window, cx| w.restart(window, cx)),
             keyed("Quit", "quit", "app"),
         ];
+        let at = |entries: &Vec<Entry>, label: &str| entries.iter().position(|entry| entry.label.as_ref() == label).unwrap_or(entries.len());
+        let after_tasks = at(&entries, "Go to file…");
+        entries.splice(after_tasks..after_tasks, of_task);
+        let with_git = at(&entries, "Complete here");
+        entries.splice(with_git..with_git, of_git);
         // With the window's own: before the app's.
         let app = entries.iter().position(|entry| entry.label.as_ref() == "Settings…").unwrap_or(entries.len());
         entries.splice(app..app, to_spaces);

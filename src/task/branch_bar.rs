@@ -126,7 +126,7 @@ impl TaskView {
                         .label("Fetch")
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
-                            this.run_action("Fetch", |root| git::fetch(&root), false, window, cx)
+                            this.git_command(GitCommand::Fetch, window, cx)
                         })),
                 )
                 .child(
@@ -147,20 +147,7 @@ impl TaskView {
                         })
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
-                            // Known to conflict: not tried, the agent is asked to merge it.
-                            let files = this.branch_info.pull_conflicts.clone();
-                            if !files.is_empty() {
-                                let list = files.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n");
-                                let upstream = this.branch_info.upstream.clone().unwrap_or_else(|| "the upstream".into());
-                                let told = this.ask_about_conflict(
-                                    format!("Take in {upstream} (fetch, then rebase or merge as this branch does). With the work here, committed or not, it conflicts in:\n{list}\n\nResolve the conflicts keeping what both sides meant, and check that it builds and the tests pass."),
-                                    window,
-                                    cx,
-                                );
-                                this.action = Some((false, format!("Pull: {} file(s) would conflict, nothing changed{told}", files.len())));
-                                return cx.notify();
-                            }
-                            this.run_action("Pull", |root| git::pull_safe(&root), false, window, cx)
+                            this.git_command(GitCommand::Pull, window, cx)
                         })),
                 )
             })

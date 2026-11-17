@@ -122,6 +122,11 @@ pub use virtual_list::{VirtualList, VirtualListScrollHandle, h_virtual_list, v_v
 pub use window_border::{WindowBorder, window_border, window_paddings};
 pub use window_ext::WindowExt;
 
+/// ideae patch: see `WindowState::dialogs`.
+pub fn dialogs_watch(window: &gpui::Window, cx: &gpui::App) -> Option<Box<dyn Fn(&gpui::App) -> bool>> {
+    root::WindowState::dialogs(window, cx)
+}
+
 rust_i18n::i18n!("locales", fallback = "en");
 
 /// Initialize the components.

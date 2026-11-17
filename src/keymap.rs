@@ -28,11 +28,14 @@ pub struct Shortcut {
     default: &'static str,
     scope: Scope,
     action: fn() -> Box<dyn Action>,
+    /// Gives its action a way in from the macOS menu bar when nothing on the
+    /// focus path handles it: see `menu::reach`.
+    pub reach: fn(&mut App),
 }
 
 macro_rules! shortcut {
     ($id:literal, $name:literal, $keys:literal, $scope:ident, $action:expr) => {
-        Shortcut { id: $id, name: $name, default: $keys, scope: Scope::$scope, action: || Box::new($action) }
+        Shortcut { id: $id, name: $name, default: $keys, scope: Scope::$scope, action: || Box::new($action), reach: |cx| crate::menu::reach(&$action, cx) }
     };
 }
 
@@ -184,6 +187,7 @@ pub fn rebind(old: &crate::state::Settings, cx: &mut App) {
         let bindings = s.bindings(&s.keys(), false, cx);
         cx.bind_keys(bindings);
     }
+    crate::menu::bind_system_keys(cx);
 }
 
 /// "Ctrl+Shift+N", or "⌘⇧O" on macOS, for keystrokes like "ctrl-shift-n".

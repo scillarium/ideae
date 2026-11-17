@@ -1,5 +1,23 @@
 use super::*;
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum GitCommand {
+    Commit,
+    WriteMessage,
+    Stash,
+    Push,
+    PullRequest,
+    Fetch,
+    Pull,
+    Rebase,
+    /// The stash put away last comes back, and is dropped.
+    Unstash,
+}
+
+impl GitCommand {
+    pub const ALL: [GitCommand; 9] = [Self::Commit, Self::WriteMessage, Self::Stash, Self::Push, Self::PullRequest, Self::Fetch, Self::Pull, Self::Rebase, Self::Unstash];
+}
+
 /// A row of the Changes panel. They are all as high as one another, so
 /// that only those in view are laid out.
 pub(super) enum ChangeRow {
@@ -37,7 +55,6 @@ impl TaskView {
         } else {
             ("Push".to_string(), "Nothing to push")
         };
-        let can_push = b.has_origin && (b.upstream.is_none() || b.ahead > 0);
         // Status above the message box: the box is pinned to the bottom, so
         // nothing below it moves when a status shows up.
         v_flex()
@@ -105,7 +122,7 @@ impl TaskView {
                             .small()
                             .ghost()
                             .label("✦ Write")
-                            .disabled(busy || self.files.is_empty())
+                            .disabled(!self.git_can(GitCommand::WriteMessage))
                             .tooltip(if staged > 0 {
                                 "Have the agent for quick questions write the commit message for the staged changes, into the box"
                             } else {
@@ -134,7 +151,7 @@ impl TaskView {
                         Button::new("commit")
                             .small()
                             .outline()
-                            .disabled(busy || (self.files.is_empty() && !amend))
+                            .disabled(!self.git_can(GitCommand::Commit))
                             .label(match (amend, staged) {
                                 (true, _) => "Amend".to_string(),
                                 (false, 0) => "Commit all".to_string(),
@@ -153,38 +170,32 @@ impl TaskView {
                         Button::new("stash")
                             .small()
                             .ghost()
-                            .disabled(busy || self.files.is_empty())
+                            .disabled(!self.git_can(GitCommand::Stash))
                             .label("Stash")
                             .tooltip("Put everything not committed away, to bring back later; the message box names it")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                let message = this.commit_input.read(cx).value().trim().to_string();
-                                this.run_action("Stash", move |root| git::stash(&root, &message), false, window, cx)
-                            })),
+                            .on_click(cx.listener(|this, _, window, cx| this.git_command(GitCommand::Stash, window, cx))),
                     )
                     .child(
                         Button::new("push")
                             .small()
                             .ghost()
-                            .disabled(busy || !can_push)
+                            .disabled(!self.git_can(GitCommand::Push))
                             .label(push_label)
                             .tooltip(push_tip)
-                            .on_click(cx.listener(|this, _, window, cx| this.push(window, cx))),
+                            .on_click(cx.listener(|this, _, window, cx| this.git_command(GitCommand::Push, window, cx))),
                     )
                     .child(
                         Button::new("pr")
                             .small()
                             .ghost()
-                            .disabled(busy || !b.has_origin)
+                            .disabled(!self.git_can(GitCommand::PullRequest))
                             .label("PR")
                             .tooltip(if b.has_origin {
                                 "Open this branch's pull request, creating it if needed"
                             } else {
                                 "No remote named origin"
                             })
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                let upstream = this.branch_info.upstream.is_some();
-                                this.run_action("PR", move |root| git::pull_request(&root, upstream), true, window, cx)
-                            })),
+                            .on_click(cx.listener(|this, _, window, cx| this.git_command(GitCommand::PullRequest, window, cx))),
                     ),
             )
     }
@@ -742,10 +753,104 @@ impl TaskView {
         .detach();
     }
 
+    /// One of the commit box's or the branch line's actions, from a button
+    /// or the menu bar; where it has nothing to do, it says so.
+    pub fn git_command(&mut self, what: GitCommand, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(why) = self.git_blocked(what) {
+            self.action = Some((false, why));
+            return cx.notify();
+        }
+        let b = &self.branch_info;
+        let upstream = b.upstream.is_some();
+        let base = b.base.clone().filter(|_| b.behind_base > 0);
+        match what {
+            // As JetBrains' Commit…: to the message, to look before committing.
+            GitCommand::Commit => {
+                let input = self.commit_input.clone();
+                window.defer(cx, move |window, cx| input.read(cx).focus_handle(cx).focus(window, cx));
+            }
+            GitCommand::WriteMessage => self.suggest_message(window, cx),
+            GitCommand::Stash => {
+                let message = self.commit_input.read(cx).value().trim().to_string();
+                self.run_action("Stash", move |root| git::stash(&root, &message), false, window, cx)
+            }
+            GitCommand::Push => self.push(window, cx),
+            GitCommand::PullRequest => self.run_action("PR", move |root| git::pull_request(&root, upstream), true, window, cx),
+            GitCommand::Fetch => self.run_action("Fetch", |root| git::fetch(&root), false, window, cx),
+            GitCommand::Pull => {
+                // Known to conflict: not tried, the agent is asked to merge it.
+                let files = self.branch_info.pull_conflicts.clone();
+                if !files.is_empty() {
+                    let list = files.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n");
+                    let upstream = self.branch_info.upstream.clone().unwrap_or_else(|| "the upstream".into());
+                    let told = self.ask_about_conflict(
+                        format!("Take in {upstream} (fetch, then rebase or merge as this branch does). With the work here, committed or not, it conflicts in:\n{list}\n\nResolve the conflicts keeping what both sides meant, and check that it builds and the tests pass."),
+                        window,
+                        cx,
+                    );
+                    self.action = Some((false, format!("Pull: {} file(s) would conflict, nothing changed{told}", files.len())));
+                    return cx.notify();
+                }
+                self.run_action("Pull", |root| git::pull_safe(&root), false, window, cx)
+            }
+            GitCommand::Unstash => {
+                if let Some(stash) = self.own_stash().cloned() {
+                    self.run_action("Unstash", move |root| git::stash_apply(&root, &stash, true), false, window, cx)
+                }
+            }
+            GitCommand::Rebase => {
+                if let Some(base) = base {
+                    self.rebase_onto_base(base, window, cx)
+                }
+            }
+        }
+    }
+
+    /// Why it cannot be done now: what greys its button and its menu item.
+    pub fn git_blocked(&self, what: GitCommand) -> Option<String> {
+        match self.busy {
+            Some(busy) => Some(format!("{busy} is still running")),
+            None => self.git_nothing(what).map(String::from),
+        }
+    }
+
+    /// For the buttons and the menu bar: nothing is written.
+    pub fn git_can(&self, what: GitCommand) -> bool {
+        self.busy.is_none() && self.git_nothing(what).is_none()
+    }
+
+    /// The newest stash made on this task's branch: the list is the whole
+    /// repository's, every worktree adds to it.
+    fn own_stash(&self) -> Option<&git::Stash> {
+        let head = &self.branch_info.head;
+        self.stashes.iter().find(|s| {
+            let on = s.what.strip_prefix("WIP on ").or_else(|| s.what.strip_prefix("On "));
+            on.and_then(|rest| rest.split_once(':')).is_some_and(|(branch, _)| branch == head)
+        })
+    }
+
+    fn git_nothing(&self, what: GitCommand) -> Option<&'static str> {
+        let b = &self.branch_info;
+        let why = match what {
+            // Amend changes the last commit's message alone, as the commit box's button does.
+            GitCommand::Commit if self.files.is_empty() && self.amend.is_none() => "Nothing has changed",
+            GitCommand::WriteMessage | GitCommand::Stash if self.files.is_empty() => "Nothing has changed",
+            GitCommand::Push | GitCommand::PullRequest if !b.has_origin => "No remote named origin",
+            GitCommand::Push if b.upstream.is_some() && b.ahead == 0 => "Nothing to push",
+            GitCommand::Pull if b.upstream.is_none() => "The branch has no upstream",
+            GitCommand::Unstash if self.own_stash().is_none() => "Nothing is stashed on this branch",
+            GitCommand::Rebase if b.base.is_none() || b.behind_base == 0 => "The branch is not behind its base",
+            _ => return None,
+        };
+        Some(why)
+    }
+
     pub(super) fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let message = self.commit_input.read(cx).value().trim().to_string();
         if message.is_empty() {
             self.action = Some((false, "Write a commit message first".into()));
+            let input = self.commit_input.clone();
+            window.defer(cx, move |window, cx| input.read(cx).focus_handle(cx).focus(window, cx));
             cx.notify();
             return;
         }

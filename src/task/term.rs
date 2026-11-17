@@ -161,6 +161,14 @@ impl TermView {
         Self::gone(state) || (self.ran && state.foreground().is_some_and(|p| p.is_shell()))
     }
 
+    /// Nothing but the shell runs in the agent's terminal: so too after a
+    /// restart of the window that attached to it with the agent long gone,
+    /// which `agent_ended` does not tell, not having seen the agent run.
+    pub fn agent_at_prompt(&self, cx: &App) -> bool {
+        let state = self.state.read(cx);
+        self.agent && (Self::gone(state) || state.foreground().is_some_and(|p| p.is_shell()))
+    }
+
     /// The terminal's own program, the shell, is no more.
     pub(super) fn gone(state: &TerminalState) -> bool {
         use gpui_cn::terminal::TerminalStatus;
@@ -235,6 +243,11 @@ impl Render for TermView {
         v_flex()
             .size_full()
             .on_action(cx.listener(|this, _: &FindInTerminal, window, cx| this.open_find(window, cx)))
+            // The menu bar's Edit items are the editor's actions: here they are the terminal's.
+            .on_action(|_: &gpui_kit::component::input::Search, window, cx| window.dispatch_action(Box::new(FindInTerminal), cx))
+            .on_action(|_: &gpui_kit::component::input::Copy, window, cx| window.dispatch_action(Box::new(gpui_cn::terminal::actions::Copy), cx))
+            .on_action(|_: &gpui_kit::component::input::Paste, window, cx| window.dispatch_action(Box::new(gpui_cn::terminal::actions::Paste), cx))
+            .on_action(|_: &gpui_kit::component::input::SelectAll, window, cx| window.dispatch_action(Box::new(gpui_cn::terminal::actions::SelectAll), cx))
             .children(ended)
             .children(find)
             .child(

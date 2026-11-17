@@ -24,6 +24,8 @@ mod keys;
 mod lsp;
 mod lsp_install;
 mod merged_branches;
+mod commands;
+mod menu;
 mod naming;
 mod palette;
 mod pr;
@@ -105,7 +107,8 @@ impl Render for Workspace {
                                 .min_w_0()
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(|_, _, cx| cx.stop_propagation())
-                                .child(self.render_menu(cx)),
+                                // On macOS the menu bar takes its place; the rest is in the command palette.
+                                .when(!cfg!(target_os = "macos"), |row| row.child(self.render_menu(cx))),
                         )
                         .child(self.render_title(cx))
                         .child(
@@ -315,6 +318,12 @@ impl Render for Workspace {
                     task.update(cx, |t, cx| t.show_side_panel(a.0, window, cx));
                 }
             }))
+            // Reached from the sidebar and a zoomed pane, where the task's own is not.
+            .on_action(cx.listener(|this, _: &task::ShowBranches, window, cx| {
+                if let Some(task) = this.active_view() {
+                    task.update(cx, |t, cx| t.branches_dialog(window, cx));
+                }
+            }))
             .on_action(cx.listener(|this, _: &GoToFile, window, cx| this.finder(finder::FinderKind::Files, window, cx)))
             .on_action(cx.listener(|this, _: &GoToSymbol, window, cx| this.finder(finder::FinderKind::Symbols, window, cx)))
             .on_action(cx.listener(|this, _: &SwitchTheme, window, cx| this.theme_picker(window, cx)))
@@ -331,17 +340,30 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &palette::CommandPalette, window, cx| this.command_palette(window, cx)))
             .on_action(cx.listener(|this, _: &palette::RecentPlaces, window, cx| this.recent_tasks(window, cx)))
             .on_action(cx.listener(|this, _: &palette::NextWaiting, window, cx| this.next_waiting(window, cx)))
-            .on_action(cx.listener(|this, _: &NewTask, window, cx| {
-                if let Some(project) = this.active_project().or(this.first_project()) {
-                    this.new_task_dialog(project, window, cx);
-                }
-            }))
+            .on_action(cx.listener(|this, _: &NewTask, window, cx| this.new_task(window, cx)))
     }
 }
 
 actions!(ideae, [GoToFile, GoToSymbol, FindInFiles, ReplaceInFiles, NewTask, Quit, OpenSettings, SwitchTheme]);
 
 impl Workspace {
+    pub fn new_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(project) = self.project_in_hand().or(self.first_project()) {
+            self.new_task_dialog(project, window, cx);
+        }
+    }
+
+    /// Not while presenting: nothing is added to the window then.
+    pub fn ask_for_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_presenting() {
+            self.add_project_dialog(window, cx);
+        }
+    }
+
+    pub fn toggle_presentation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_presenting() { self.end_presentation(window, cx) } else { self.presentation_dialog(window, cx) }
+    }
+
     fn finder(&mut self, kind: finder::FinderKind, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(task) = self.active_view() {
             task.update(cx, |t, cx| t.open_finder(kind, window, cx));
@@ -485,16 +507,14 @@ impl Workspace {
             menu = entry(menu, "Find in files…", Some("find_in_files"), |w, window, cx| w.finder(finder::FinderKind::Grep, window, cx));
             menu = entry(menu, "Replace in files…", Some("replace_in_files"), |w, window, cx| w.replace_in_files(window, cx));
             menu = entry(menu, "Run a command…", Some("command_palette"), |w, window, cx| w.command_palette(window, cx)).separator();
-            menu = entry(menu, if presenting { "End presentation" } else { "Enter presentation mode…" }, None, |w, window, cx| {
-                if w.is_presenting() { w.end_presentation(window, cx) } else { w.presentation_dialog(window, cx) }
-            });
+            menu = entry(menu, if presenting { "End presentation" } else { "Enter presentation mode…" }, None, |w, window, cx| w.toggle_presentation(window, cx));
             menu = entry(menu, "Theme…", Some("theme"), |w, window, cx| w.theme_picker(window, cx));
             if zoomed {
                 menu = entry(menu, "Text of its usual size", None, |_, _, cx| zoom::reset_all(cx));
             }
             let power = this.clone();
             menu = menu
-                .item(PopupMenuItem::new("Save power").checked(saving).on_click(move |_, _, cx| {
+                .item(PopupMenuItem::new("Power save mode").checked(saving).on_click(move |_, _, cx| {
                     let _ = power.update(cx, |w, cx| w.toggle_power_saving(cx));
                 }))
                 .separator();
@@ -651,6 +671,7 @@ fn main() {
     std::thread::spawn(desktop::refresh_entry);
     procs::catch_quit_signals();
 
+    menu::before_launch();
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
@@ -661,7 +682,9 @@ fn main() {
             cx.bind_keys(gpui_cn::terminal::default_key_bindings());
             visible_scrollbars(cx);
             cx.observe_global::<gpui_kit::base::Theme>(visible_scrollbars).detach();
+            menu::init(cx);
             keymap::bind_all(cx);
+            menu::install(cx);
             stalls::watch(cx);
 
             // A saved window larger than the screen it opens on (another
@@ -708,6 +731,9 @@ fn main() {
                 cx.new(|cx| {
                     let mut workspace = Workspace::with_state(saved, repos, agent, appearance, window, cx);
                     workspace.placed_at(requested);
+                    cx.set_global(menu::Target { window: window.window_handle(), workspace: cx.weak_entity() });
+                    // Again with the window's spaces and state.
+                    cx.defer(menu::install);
                     if let Some(task) = &open_task {
                         workspace.focus_task(task, window, cx);
                     }

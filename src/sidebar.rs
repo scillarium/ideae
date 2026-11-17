@@ -803,6 +803,10 @@ impl Workspace {
         let (starred, main) = (t.starred, t.main);
         let (grouped, ready, side) = (!t.group.is_empty(), t.busy.is_none(), t.side.is_some());
         let can_continue = several && t.side.is_none() && ready;
+        let hand = crate::commands::InHand::basic(t);
+        let can = move |what| hand.allows(what);
+        let named = move |what: T| crate::commands::sentence(what.name(starred));
+        use crate::commands::TaskCommand as T;
         let menu_path = path.clone();
         let branch = t.branch.clone();
         let menu = move |menu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
@@ -812,24 +816,24 @@ impl Workspace {
             let (g, pg) = (this.clone(), menu_path.clone());
             let branch = branch.clone();
             // What it is called and how it is found; its variants; its end.
-            menu.when(!main, |m| {
-                m.item(PopupMenuItem::new("Rename…").on_click(move |_, window, cx| {
+            menu.when(can(T::Rename), |m| {
+                m.item(PopupMenuItem::new(named(T::Rename)).on_click(move |_, window, cx| {
                     let _ = d.update(cx, |w, cx| w.rename_task_dialog(&pd, window, cx));
                 }))
             })
-            .item(PopupMenuItem::new(if starred { "Unstar" } else { "Star" }).on_click(move |_, _, cx| {
+            .item(PopupMenuItem::new(named(T::Star)).on_click(move |_, _, cx| {
                 let _ = a.update(cx, |w, cx| w.toggle_star(&pa, cx));
             }))
-            .item(PopupMenuItem::new("Copy branch name").on_click(move |_, _, cx| {
+            .item(PopupMenuItem::new(named(T::CopyBranchName)).on_click(move |_, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(branch.clone()));
             }))
-            .when(!main && !side && ready, |m| {
+            .when(can(T::AnotherVariant), |m| {
                 m.separator()
-                    .item(PopupMenuItem::new("Another variant…").on_click(move |_, window, cx| {
+                    .item(PopupMenuItem::new(named(T::AnotherVariant)).on_click(move |_, window, cx| {
                         let _ = e.update(cx, |w, cx| w.another_variant_dialog(&pe, window, cx));
                     }))
-                    .when(grouped, |m| {
-                        m.item(PopupMenuItem::new("Keep this variant…").on_click(move |_, window, cx| {
+                    .when(can(T::KeepVariant), |m| {
+                        m.item(PopupMenuItem::new(named(T::KeepVariant)).on_click(move |_, window, cx| {
                             let _ = f.update(cx, |w, cx| w.keep_variant_dialog(&pf, window, cx));
                         }))
                     })
@@ -839,15 +843,16 @@ impl Workspace {
                     let _ = g.update(cx, |w, cx| w.continue_with_dialog(&pg, window, cx));
                 }))
             })
-            .when(running || (!main && ready), |m| m.separator())
+            .when(can(T::Pause) || can(T::Archive) || can(T::RemoveSide), |m| m.separator())
             // Pause stops what runs and keeps the task; Archive is the end
             // of one, which a restore takes up again.
-            .when(running, |m| {
+            .when(can(T::Pause), |m| {
                 m.item(PopupMenuItem::new("Pause").on_click(move |_, window, cx| {
                     let _ = b.update(cx, |w, cx| w.close_task(&pb, window, cx));
                 }))
             })
-            .when(!main && ready, |m| {
+            .when(can(T::Archive) || can(T::RemoveSide), |m| {
+                // In a row of its own the task needs no naming: "Pause", not "Pause task".
                 m.item(PopupMenuItem::new(if side { "Remove" } else { "Archive" }).on_click(move |_, window, cx| {
                     let _ = c.update(cx, |w, cx| if side { w.remove_side(&pc, window, cx) } else { w.archive_task(&pc, window, cx) });
                 }))

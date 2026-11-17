@@ -94,6 +94,14 @@ impl TaskView {
         }
     }
 
+    /// Whether some service runs, and whether some does not yet.
+    pub fn services_running_and_waiting(&self, cx: &App) -> (bool, bool) {
+        self.services.iter().fold((false, false), |(running, waiting), s| {
+            let on = self.service_ix(&s.name, cx).is_some();
+            (running || on, waiting || !on)
+        })
+    }
+
     pub fn has_services(&self) -> bool {
         !self.services.is_empty()
     }

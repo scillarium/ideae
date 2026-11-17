@@ -217,6 +217,8 @@ pub struct Workspace {
     fetched: std::collections::HashMap<PathBuf, std::time::Instant>,
     /// The group of variants whose screen is in view, in place of a task.
     pub active_group: Option<String>,
+    /// On the group's screen, the variant the menu bar's task items act on: the one clicked last.
+    pub group_card: Option<PathBuf>,
     /// Groups folded in the sidebar.
     pub collapsed_groups: std::collections::HashSet<String>,
     /// The agents' worktrees shown under a task (or a project's path, for
@@ -540,6 +542,7 @@ impl Workspace {
                 message
             },
             active_group: None,
+            group_card: None,
             collapsed_groups: Default::default(),
             open_sides: Default::default(),
             menu_on: None,
@@ -2213,6 +2216,8 @@ impl Workspace {
         }
         if old.keys != new.keys {
             crate::keymap::rebind(&old, cx);
+            // Out of this window's update: the menus read the window.
+            cx.defer(crate::menu::install);
         }
         if old.agent_lsp != new.agent_lsp {
             if let Some(bridge) = &self._bridge {
@@ -2263,6 +2268,16 @@ impl Workspace {
         }
         self.save(cx);
         cx.quit();
+    }
+
+    /// The window's ×, from the menu bar: without a daemon to keep the
+    /// agents, that is a quit, and asks as one.
+    pub fn close_or_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(unix)]
+        if crate::daemon::client::get().is_some() {
+            return self.close_window(cx);
+        }
+        self.request_quit(window, cx)
     }
 
     /// Exit: ends every agent and terminal, after a word when any run.

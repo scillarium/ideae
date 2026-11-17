@@ -177,6 +177,10 @@ impl Workspace {
         }
         let mut shown = self.space.clone();
         follow(&mut shown);
+        // The menu's list of spaces, made again once typing a name pauses.
+        if self.spaces.iter().map(|s| &s.name).ne(spaces.iter().map(|s| &s.name)) {
+            crate::menu::install_soon(cx);
+        }
         self.spaces = spaces;
         if shown != self.space {
             self.space = shown;

@@ -394,8 +394,7 @@ impl Workspace {
     /// asks something, starts, waits for its prompt or has a message
     /// coming is not.
     pub fn group_settled(&self, group: &str, cx: &App) -> bool {
-        self.members(group).into_iter().all(|(pi, ti)| {
-            let t = &self.projects[pi].tasks[ti];
+        self.projects.iter().flat_map(|p| &p.tasks).filter(|t| t.group == group).all(|t| {
             t.busy.is_none()
                 && t.view.as_ref().is_none_or(|v| {
                     let v = v.read(cx);
@@ -443,9 +442,15 @@ impl Workspace {
                 t.set_visible(false, window, cx)
             });
         }
-        if let Some(old) = self.active.take().and_then(|a| self.entry_mut(&a)) {
+        let came_from = self.active.take();
+        if let Some(old) = came_from.as_ref().and_then(|a| self.entry_mut(a)) {
             old.left_view = Some(std::time::Instant::now());
             old.seen_at = crate::state::now();
+        }
+        // The variant come from is the one in hand; else the one that was
+        // (`card_in_hand` passes over one that is gone or not shown).
+        if let Some(from) = came_from.filter(|path| self.find(path).is_some_and(|(pi, ti)| self.projects[pi].tasks[ti].group == group)) {
+            self.group_card = Some(from);
         }
         self.active_group = Some(group.to_string());
         for (pi, ti) in self.members(group) {
@@ -1143,6 +1148,10 @@ impl Workspace {
         cx.notify();
     }
 
+    pub fn is_judging(&self, group: &str) -> bool {
+        self.judging.contains_key(group)
+    }
+
     /// One more agent, which only reads: what every variant changed, how
     /// the check went in each and what each agent says it did. It says
     /// which to keep and what to take from the others.
@@ -1539,6 +1548,7 @@ impl Workspace {
         // Of before the group changed, it picks nothing.
         let pick = judge.filter(|run| run.state == RunState::Passed && !stale).and_then(|run| judge_pick(&run.output));
         let mut cards = v_flex().gap_3();
+        let card_in_hand = self.card_in_hand();
         for &(pi, ti) in &members {
             let t = &self.projects[pi].tasks[ti];
             let info = self.variant_info.get(&t.path).cloned().unwrap_or_default();
@@ -1578,13 +1588,27 @@ impl Workspace {
             let site = t.view.as_ref().filter(|v| !v.read(cx).running_services(cx).is_empty()).and_then(|v| v.read(cx).site());
             let visit = t.path.clone();
             let ready = t.busy.is_none();
+            let card = t.path.clone();
+            let in_hand = card_in_hand.as_ref() == Some(&t.path);
             cards = cards.child(
                 v_flex()
+                    .id(("variant-card", ti))
                     .gap_2()
                     .p_3()
                     .border_1()
                     .border_color(if picked { cx.theme().primary } else { cx.theme().border })
                     .rounded_md()
+                    // The one the menu bar's Task items act on.
+                    .when(in_hand, |c| c.bg(cx.theme().accent.opacity(0.4)))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            if this.group_card.as_ref() != Some(&card) {
+                                this.group_card = Some(card.clone());
+                                cx.notify();
+                            }
+                        }),
+                    )
                     .child(
                         h_flex()
                             .gap_3()
