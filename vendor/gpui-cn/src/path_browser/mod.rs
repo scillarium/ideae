@@ -510,7 +510,7 @@ impl<E: Entry> Browser<E> {
                         browser.cancel_new_folder(cx);
                     }
                 }
-                InputEvent::Focus | InputEvent::PressEnter { .. } => {}
+                InputEvent::Focus | InputEvent::PressEnter { .. } | InputEvent::InlayClick { .. } => {} // ideae patch: InlayClick
             },
         );
         input.update(cx, |input, cx| {

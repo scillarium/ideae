@@ -64,7 +64,11 @@ impl TaskView {
                 this.cursor_col = character;
                 // The popup of a change follows its line as the editor scrolls.
                 if line != this.cursor_line || this.change_popup.is_some() {
+                    let moved = line != this.cursor_line;
                     this.cursor_line = line;
+                    if moved {
+                        this.show_line_blame(cx);
+                    }
                     cx.notify();
                 }
             })
@@ -151,7 +155,10 @@ impl TaskView {
                         last = busy;
                         let told = this.update_in(cx, |f, window, cx| {
                             if learned {
-                                f.editor.update(cx, |state, cx| state.refresh_semantic_tokens(window, cx));
+                                f.editor.update(cx, |state, cx| {
+                                    state.refresh_semantic_tokens(window, cx);
+                                    state.refresh_inlay_hints(cx);
+                                });
                             }
                             cx.notify()
                         });
@@ -172,6 +179,15 @@ impl TaskView {
             let kept = dirty && std::mem::take(&mut tab.preview);
             if std::mem::replace(&mut tab.dirty, dirty) != dirty || follows || kept {
                 cx.notify();
+            }
+        })
+        .detach();
+        // A click on the blame at the end of the cursor's line opens its commit.
+        cx.subscribe_in(&editor, window, |this, _, event: &InputEvent, window, cx| {
+            if let InputEvent::InlayClick { id } = event
+                && let Some(hash) = id.strip_prefix(super::annotate::LINE_BLAME_ID)
+            {
+                this.show_commit(hash, window, cx);
             }
         })
         .detach();
@@ -336,6 +352,7 @@ impl TaskView {
             lsp.completion_provider = Some(bridge.clone());
             lsp.code_action_providers = vec![bridge.clone()];
             lsp.semantic_tokens_provider = Some(bridge.clone());
+            lsp.inlay_hints_provider = Some(bridge.clone());
             lsp.definition_provider = Some(UsagesAtDeclaration::wrap(bridge, &this_path));
             lsp.show_document = Some(show_document_handler(task, this_path));
             cx.notify();

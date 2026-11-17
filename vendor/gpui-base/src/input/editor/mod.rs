@@ -35,6 +35,14 @@ impl InputModeKind for EditorMode {
         state.extras.lsp.reset();
     }
 
+    fn after_layout(
+        state: &mut InputBaseState<Self>,
+        window: &mut Window,
+        cx: &mut gpui::Context<InputBaseState<Self>>,
+    ) {
+        state.inlay_hints_after_layout(window, cx);
+    }
+
     fn reset_annotations(state: &mut InputBaseState<Self>) {
         state.extras.hover_popover = None;
         state.extras.decorations.clear();

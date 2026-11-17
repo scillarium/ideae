@@ -38,6 +38,9 @@ mod highlighting;
 mod indent;
 #[path = "base/inline_tokens.rs"]
 mod inline_tokens;
+// ideae patch: text shown in the editor that is not in the buffer.
+#[path = "base/inlays.rs"]
+mod inlays;
 mod input;
 #[path = "base/token_presentation.rs"]
 mod token_presentation;
@@ -98,7 +101,9 @@ pub use diagnostics::{
     Diagnostic, DiagnosticEntry, DiagnosticRelatedInformation, DiagnosticSet, DiagnosticSeverity,
     DiagnosticSummary, DiagnosticTag, RelatedInformation,
 };
-pub use display_map::{BufferPoint, DisplayMap, DisplayPoint, FoldRange, WrappingIndent};
+pub use display_map::{
+    BufferPoint, DisplayMap, DisplayPoint, FoldRange, Inlay, InlayBias, InlayStyle, WrappingIndent,
+};
 pub use editor::{Editor, EditorState};
 pub use highlighting::{
     DiagnosticColors, FoldIconRenderer, HighlightStyleResolver, InputEditorStyle, InputHighlighter,
@@ -117,6 +122,7 @@ pub use lsp::{
     CodeActionItem, CodeActionMenuState, CodeActionProvider, CompletionHighlighter,
     CompletionMenuOptions, CompletionMenuState, CompletionProvider, DefinitionProvider,
     DocumentColorProvider, DocumentRangeSemanticTokensProvider, HoverPopoverState, HoverProvider,
+    INLAY_HINTS_KEY, InlayHintsProvider,
     InputOverlayKind, Lsp, ShowDocumentHandler, highlight_characters, highlight_contains,
     highlight_prefix,
 };

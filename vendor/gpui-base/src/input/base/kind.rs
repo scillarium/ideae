@@ -201,6 +201,14 @@ pub trait InputModeKind: sealed::Sealed + Sized + 'static {
     /// Drops cached language-server results, e.g. after the text is replaced.
     fn reset_language_features(_state: &mut InputBaseState<Self>) {}
 
+    /// ideae patch: after every paint, with the lines in view known.
+    fn after_layout(
+        _state: &mut InputBaseState<Self>,
+        _window: &mut Window,
+        _cx: &mut gpui::Context<InputBaseState<Self>>,
+    ) {
+    }
+
     /// Drops decorations and hover state when the text is replaced wholesale.
     fn reset_annotations(_state: &mut InputBaseState<Self>) {}
 

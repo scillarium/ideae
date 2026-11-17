@@ -2197,7 +2197,7 @@ pub(crate) mod tests {
 
         step(cx, &mut |w, window, cx| w.create_task(0, "Fix login".into(), "Make the file.".into(), vec![String::new(), "With the smallest patch.".into()], Vec::new(), window, cx));
         let (group, paths) = workspace.update(cx, |w, _| {
-            let tasks = &w.projects[0].tasks;
+            let tasks = &w.projects[0].work();
             assert_eq!(tasks.len(), 2, "two variants");
             assert!(tasks.iter().all(|t| t.busy.is_none() && t.view.is_some() && t.path.exists()), "made and started");
             assert!(tasks[0].base == tasks[1].base && !tasks[0].base.is_empty(), "from one commit");
@@ -2209,13 +2209,13 @@ pub(crate) mod tests {
         // A site in each: the variants serve it on ports of their own.
         step(cx, &mut |w, window, cx| w.serve_group(&group, true, window, cx));
         workspace.update(cx, |w, cx| {
-            let sites: Vec<Option<String>> = w.projects[0].tasks.iter().map(|t| t.view.as_ref().unwrap().read(cx).site()).collect();
+            let sites: Vec<Option<String>> = w.projects[0].work().iter().map(|t| t.view.as_ref().unwrap().read(cx).site()).collect();
             assert_eq!(sites, [Some("http://localhost:43200/".to_string()), Some("http://localhost:43300/".to_string())]);
-            assert!(w.projects[0].tasks.iter().all(|t| t.view.as_ref().unwrap().read(cx).running_services(cx).len() == 1), "served in each");
+            assert!(w.projects[0].work().iter().all(|t| t.view.as_ref().unwrap().read(cx).running_services(cx).len() == 1), "served in each");
         });
         step(cx, &mut |w, window, cx| w.serve_group(&group, false, window, cx));
         workspace.update(cx, |w, cx| {
-            assert!(w.projects[0].tasks.iter().all(|t| t.view.as_ref().unwrap().read(cx).running_services(cx).is_empty()), "and stopped");
+            assert!(w.projects[0].work().iter().all(|t| t.view.as_ref().unwrap().read(cx).running_services(cx).is_empty()), "and stopped");
         });
 
         // The agents work: A changes a line and makes the file, B only makes the file.
@@ -2253,7 +2253,7 @@ pub(crate) mod tests {
         workspace.update(cx, |w, cx| {
             let saved = w.snapshot(cx);
             assert!(saved.projects[0].verdicts.get(&group).is_some_and(|run| run.output.contains("KEEP: B")));
-            assert!(saved.projects[0].tasks.iter().all(|t| t.check.as_ref().is_some_and(|run| run.state == RunState::Passed)));
+            assert!(saved.projects[0].tasks.iter().filter(|t| !t.main).all(|t| t.check.as_ref().is_some_and(|run| run.state == RunState::Passed)));
         });
         // What an agent has used is known: its task shows how full its context is, the title what the day took.
         workspace.update(cx, |w, cx| {
@@ -2457,7 +2457,7 @@ pub(crate) mod tests {
         // B is kept: A goes, parked; B gets the clean branch name.
         step(cx, &mut |w, window, cx| w.settle_group(&group, Some(&paths[1]), &super::pushed_of(&w.member_paths(&group)), window, cx));
         workspace.update(cx, |w, _| {
-            let tasks = &w.projects[0].tasks;
+            let tasks = &w.projects[0].work();
             assert_eq!(tasks.len(), 1, "only the one kept");
             assert!(tasks[0].path == paths[1] && tasks[0].group.is_empty() && tasks[0].branch == group, "a task of its own on {}", tasks[0].branch);
             assert_eq!(w.active.as_deref(), Some(paths[1].as_path()));
@@ -2472,7 +2472,7 @@ pub(crate) mod tests {
         // gets a letter whose directory is free (B's is the kept one's).
         step(cx, &mut |w, window, cx| w.add_variant(&paths[1], "Make the file.".into(), "Another way.".into(), String::new(), window, cx));
         let third = workspace.update(cx, |w, _| {
-            let tasks = &w.projects[0].tasks;
+            let tasks = &w.projects[0].work();
             assert_eq!(tasks.len(), 2, "the kept one and the new one");
             assert!(tasks[0].path == paths[1] && tasks[0].variant == 1 && tasks[0].view.is_some(), "the kept one is there, running");
             assert!(tasks[1].branch == format!("{group}-c") && tasks[1].busy.is_none() && tasks[1].path.exists(), "the new one is {}", tasks[1].branch);
@@ -2481,7 +2481,7 @@ pub(crate) mod tests {
 
         // None of them after all.
         step(cx, &mut |w, window, cx| w.settle_group(&group, None, &super::pushed_of(&w.member_paths(&group)), window, cx));
-        workspace.update(cx, |w, _| assert!(w.projects[0].tasks.is_empty() && w.active_group.is_none()));
+        workspace.update(cx, |w, _| assert!(w.projects[0].work().is_empty() && w.active_group.is_none()));
         assert!(!paths[1].exists() && !third.exists());
         assert_eq!(git(&repo, &["for-each-ref", "--format=%(refname)", crate::git::PARKED]).lines().count(), 3, "all three parked");
         assert_eq!(git(&repo, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "only the main checkout is left");

@@ -1,3 +1,4 @@
+use super::inlay_map::{Inlay, InlayMap, on_row};
 use super::inline_line::InputLine;
 use gpui::Half;
 use std::borrow::Cow;
@@ -30,11 +31,23 @@ pub enum WrappingIndent {
 
 /// Choose Unicode line-break opportunities using the same shaped widths as
 /// painting. Oversized words fall back to complete graphemes, never UTF-8 bytes.
+#[cfg(test)]
 fn measured_wrap_boundaries(
     text: &str,
     width: Pixels,
     wrapping_indent: WrappingIndent,
     mut measure: impl FnMut(&str) -> Pixels,
+) -> Vec<gpui::Boundary> {
+    measured_wrap_boundaries_by_range(text, width, wrapping_indent, |range| measure(&text[range]))
+}
+
+/// ideae patch: [`measured_wrap_boundaries`] measuring byte ranges of the
+/// line, so what is drawn between its characters (inlays) can be counted.
+fn measured_wrap_boundaries_by_range(
+    text: &str,
+    width: Pixels,
+    wrapping_indent: WrappingIndent,
+    mut measure: impl FnMut(Range<usize>) -> Pixels,
 ) -> Vec<gpui::Boundary> {
     let indent = if wrapping_indent == WrappingIndent::Same {
         text.chars()
@@ -44,7 +57,7 @@ fn measured_wrap_boundaries(
     } else {
         0
     };
-    let indent_width = measure(&text[..indent]);
+    let indent_width = measure(0..indent);
     let ends: Vec<usize> = text
         .grapheme_indices(true)
         .map(|(ix, grapheme)| ix + grapheme.len())
@@ -67,7 +80,7 @@ fn measured_wrap_boundaries(
         let remaining = ends.len() - first;
         let mut low = 0;
         let mut high = 1;
-        while measure(&text[start..ends[first + high - 1]]) <= available {
+        while measure(start..ends[first + high - 1]) <= available {
             low = high;
             if high == remaining {
                 break;
@@ -76,7 +89,7 @@ fn measured_wrap_boundaries(
         }
         while low + 1 < high {
             let mid = (low + high) / 2;
-            if measure(&text[start..ends[first + mid - 1]]) <= available {
+            if measure(start..ends[first + mid - 1]) <= available {
                 low = mid;
             } else {
                 high = mid;
@@ -231,6 +244,9 @@ pub(crate) struct TextWrapper {
     pub(crate) lines: SumTree<LineItem>,
 
     inline_metrics: Rc<[(Range<usize>, Pixels)]>,
+    /// ideae patch: text drawn between the buffer's characters, which takes
+    /// room on its row.
+    pub(crate) inlays: InlayMap,
     _initialized: bool,
 }
 
@@ -246,6 +262,7 @@ impl TextWrapper {
             tab_size: TabSize::default().tab_size,
             lines: SumTree::new(&()),
             inline_metrics: Rc::from([]),
+            inlays: InlayMap::default(),
             _initialized: false,
         }
     }
@@ -393,6 +410,16 @@ impl TextWrapper {
         let font_size = self.font_size;
         let wrapping_indent = self.wrapping_indent;
         let tab_stop = tab_stop_width(&text_system, &font, font_size, self.tab_size);
+        // ideae patch: the inlays of a line take room on its rows, except
+        // those at its end, which never make a line wrap (they may run past
+        // the edge instead). Taken out for the closure, which `_update`
+        // borrows beside `self`.
+        let inlays = std::mem::take(&mut self.inlays);
+        let space = if inlays.is_empty() {
+            px(0.)
+        } else {
+            text_system.layout_width(text_system.resolve_font(&font), font_size, ' ')
+        };
         self._update(
             changed_text,
             range,
@@ -421,11 +448,60 @@ impl TextWrapper {
                     offset = range.end;
                 }
                 if fragments.is_empty() {
-                    return measured_wrap_boundaries(
+                    let line_end = line_start + line_str.len();
+                    let widths: Vec<_> = inlays
+                        .in_range(line_start..line_end)
+                        .iter()
+                        .filter(|e| e.inlay.offset < line_end)
+                        .map(|e| {
+                            let inlay = &e.inlay;
+                            let (before, after) = inlay.style.room(space);
+                            let text = inlay.text.as_ref();
+                            let width = text_system
+                                .layout_line(
+                                    text,
+                                    font_size,
+                                    &[gpui::TextRun {
+                                        len: text.len(),
+                                        font: inlay.style.font(&font),
+                                        color: gpui::black(),
+                                        background_color: None,
+                                        underline: None,
+                                        strikethrough: None,
+                                    }],
+                                    None,
+                                )
+                                .width;
+                            (
+                                inlay.offset - line_start,
+                                inlay.bias,
+                                before + width + after,
+                            )
+                        })
+                        .collect();
+                    // A line wrapped without its indent goes on from its
+                    // first wrap: that start is not the line's.
+                    let line_first =
+                        widths.is_empty() || changed_text.offset_to_point(line_start).column == 0;
+                    return measured_wrap_boundaries_by_range(
                         line_str,
                         wrap_width,
                         wrapping_indent,
-                        |text| {
+                        |range| {
+                            let inlays_width: Pixels = widths
+                                .iter()
+                                .filter(|(at, bias, _)| {
+                                    on_row(
+                                        *at,
+                                        *bias,
+                                        &range,
+                                        range.start == 0 && line_first,
+                                        false,
+                                    )
+                                })
+                                .map(|(_, _, width)| *width)
+                                .sum();
+                            let text = &line_str[range];
                             let layout = text_system.layout_line(
                                 text,
                                 font_size,
@@ -439,7 +515,7 @@ impl TextWrapper {
                                 }],
                                 None,
                             );
-                            expanded_width(&layout, text, tab_stop)
+                            expanded_width(&layout, text, tab_stop) + inlays_width
                         },
                     );
                 }
@@ -451,6 +527,50 @@ impl TextWrapper {
                     .collect()
             },
         );
+        self.inlays = inlays;
+    }
+
+    /// ideae patch: replaces the inlays of `key` in `range` (or all of
+    /// them) and wraps again the lines whose inlays changed. Inlays off the
+    /// text, inside a character, without text or of more than one line are
+    /// dropped. Returns whether anything changed.
+    pub(crate) fn set_inlays(
+        &mut self,
+        key: &gpui::SharedString,
+        range: Option<Range<usize>>,
+        mut inlays: Vec<Inlay>,
+        cx: &mut App,
+    ) -> bool {
+        let len = self.text.len();
+        inlays.retain(|inlay| {
+            inlay.offset <= len
+                && self.text.clip_offset(inlay.offset, Bias::Left) == inlay.offset
+                && !inlay.text.is_empty()
+                && !inlay.text.contains(['\n', '\r'])
+        });
+        let changed = self.inlays.set(key, range, inlays);
+        if changed.is_empty() {
+            return false;
+        }
+        if self.wrap_width.is_some() && self._initialized {
+            let text = self.text.clone();
+            let mut rows: Vec<usize> = changed
+                .iter()
+                .map(|&offset| text.offset_to_point(offset).row)
+                .collect();
+            rows.dedup();
+            for row in rows {
+                let start = text.line_start_offset(row);
+                let end = text.line_end_offset(row);
+                self.update(
+                    &text,
+                    &(start..end),
+                    &Rope::from(text.slice(start..end).to_string()),
+                    cx,
+                );
+            }
+        }
+        true
     }
 
     pub(crate) fn adjust_inline_metrics(&mut self, range: &Range<usize>, new_len: usize) {
@@ -822,7 +942,7 @@ impl LineLayout {
         self.len = lines.iter().map(|line| line.len).sum();
         self.longest_width = lines
             .iter()
-            .map(|line| line.width)
+            .map(|line| line.content_width)
             .max()
             .unwrap_or_default();
         self.wrapped_lines = lines;
@@ -1010,6 +1130,17 @@ impl LineLayout {
         (past_end / last_layout.space_width).round() as usize
     }
 
+    /// ideae patch: the inlay drawn at `pos`, if any, with the offset it is
+    /// at in this line layout.
+    pub(crate) fn inlay_at_position(
+        &self,
+        pos: Point<Pixels>,
+        last_layout: &LastLayout,
+    ) -> Option<&super::inline_line::InlayFragment> {
+        let (i, _, x) = self.wrapped_line_at(pos, last_layout)?;
+        self.wrapped_lines[i].inlay_at_x(x)
+    }
+
     pub(crate) fn index_for_position(
         &self,
         pos: Point<Pixels>,
@@ -1025,7 +1156,7 @@ impl LineLayout {
             .wrapped_lines
             .iter()
             .enumerate()
-            .map(|(ix, line)| line.width + self.line_indent(ix))
+            .map(|(ix, line)| line.content_width + self.line_indent(ix))
             .max()
             .unwrap_or(self.longest_width);
         size(width, self.wrapped_lines.len() * line_height)

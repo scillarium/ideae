@@ -279,6 +279,51 @@ impl DisplayMap {
         self.rebuild_fold_projection();
     }
 
+    // ==================== Inlays (ideae patch) ====================
+
+    /// Replaces the inlays set under `key` whose offset is in `range` (both
+    /// ends included), or all of them, by `inlays`, and wraps again the
+    /// lines they are on. Returns whether anything changed.
+    pub fn set_inlays(
+        &mut self,
+        key: &gpui::SharedString,
+        range: Option<Range<usize>>,
+        inlays: Vec<super::Inlay>,
+        cx: &mut App,
+    ) -> bool {
+        let changed = self.wrap_map.set_inlays(key, range, inlays, cx);
+        if changed {
+            self.rebuild_fold_projection();
+        }
+        changed
+    }
+
+    /// The inlays whose offset is in `range`, both ends included, in the
+    /// order they are drawn.
+    pub(crate) fn inlays_in_range(&self, range: Range<usize>) -> &[super::InlayEntry] {
+        self.wrap_map.wrapper().inlays.in_range(range)
+    }
+
+    /// All the inlays, in the order they are drawn.
+    pub fn inlays(&self) -> impl Iterator<Item = &super::Inlay> {
+        self.wrap_map
+            .wrapper()
+            .inlays
+            .entries()
+            .iter()
+            .map(|e| &e.inlay)
+    }
+
+    /// Drops every inlay, for a text set anew. Nothing is wrapped again: the
+    /// new text is.
+    pub(crate) fn clear_all_inlays(&mut self) {
+        self.wrap_map.clear_inlays();
+    }
+
+    pub(crate) fn has_clickable_inlays(&self) -> bool {
+        self.wrap_map.wrapper().inlays.has_clickable()
+    }
+
     // ==================== Internal Helpers ====================
 
     /// Rebuild fold projection after wrap_map or fold state changes

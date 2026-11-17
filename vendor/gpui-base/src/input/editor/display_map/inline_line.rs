@@ -1,17 +1,40 @@
 //! A visual row whose offsets remain in source UTF-8 bytes.
-use gpui::{App, Pixels, Point, ShapedLine, SharedString, TextAlign, Window, point, px};
+use gpui::{
+    App, Bounds, Hsla, Pixels, Point, ShapedLine, SharedString, TextAlign, Window, point, px, size,
+};
 use std::ops::Range;
+
+use super::InlayBias;
 
 pub(crate) struct InlineFragment {
     pub(crate) range: Range<usize>,
     pub(crate) x: Pixels,
     pub(crate) width: Pixels,
     pub(crate) text: Option<ShapedLine>,
+    /// ideae patch: set on an inlay, drawn at `range.start` (an empty range).
+    pub(crate) inlay: Option<Box<InlayFragment>>,
+}
+
+/// ideae patch: what an inlay's fragment needs beyond its text.
+pub(crate) struct InlayFragment {
+    pub(crate) bias: InlayBias,
+    pub(crate) id: Option<SharedString>,
+    pub(crate) background: Option<Hsla>,
+    /// Its box (inside its margins) and where its text starts, from the
+    /// fragment's x.
+    pub(crate) box_x: Range<Pixels>,
+    pub(crate) text_x: Pixels,
+    /// At the end of the line: drawn, but not a part of the line's width
+    /// for scrolling.
+    pub(crate) trailing: bool,
 }
 
 pub(crate) struct InputLine {
     pub(crate) len: usize,
     pub(crate) width: Pixels,
+    /// ideae patch: the width without the inlays at the line's end, which
+    /// do not widen what scrolls.
+    pub(crate) content_width: Pixels,
     pub(crate) text: SharedString,
     content: Content,
 }
@@ -27,6 +50,7 @@ impl From<ShapedLine> for InputLine {
         Self {
             len: line.len,
             width: line.width,
+            content_width: line.width,
             text: line.text.clone(),
             content: Content::Text(line),
         }
@@ -35,10 +59,15 @@ impl From<ShapedLine> for InputLine {
 impl InputLine {
     pub(crate) fn inline(text: SharedString, fragments: Vec<InlineFragment>) -> Self {
         let width = fragments.last().map_or(px(0.), |f| f.x + f.width);
+        let content_width = fragments
+            .iter()
+            .find(|f| f.inlay.as_ref().is_some_and(|i| i.trailing))
+            .map_or(width, |f| f.x);
         Self {
             len: text.len(),
             text,
             width,
+            content_width,
             content: Content::Inline(fragments),
         }
     }
@@ -47,6 +76,13 @@ impl InputLine {
             Content::Text(line) => line.x_for_index(ix),
             Content::Inline(fragments) => {
                 for f in fragments {
+                    if let Some(inlay) = &f.inlay {
+                        // The cursor at a left inlay's offset is drawn before it.
+                        if ix == f.range.start && inlay.bias == InlayBias::Left {
+                            return f.x;
+                        }
+                        continue;
+                    }
                     if ix < f.range.end {
                         return f.x
                             + f.text.as_ref().map_or(
@@ -65,6 +101,9 @@ impl InputLine {
             Content::Inline(fragments) => {
                 for f in fragments {
                     if x <= f.x + f.width {
+                        if f.inlay.is_some() {
+                            return f.range.start;
+                        }
                         return f.text.as_ref().map_or(
                             if x - f.x < f.width / 2. {
                                 f.range.start
@@ -82,10 +121,19 @@ impl InputLine {
     pub(crate) fn index_for_x(&self, x: Pixels) -> Option<usize> {
         match &self.content {
             Content::Text(line) => line.index_for_x(x),
-            Content::Inline(_) => {
-                (x >= px(0.) && x <= self.width).then(|| self.closest_index_for_x(x))
-            }
+            Content::Inline(_) => (x >= px(0.) && x <= self.width && self.inlay_at_x(x).is_none())
+                .then(|| self.closest_index_for_x(x)),
         }
+    }
+    /// ideae patch: the inlay drawn at `x`, if any.
+    pub(crate) fn inlay_at_x(&self, x: Pixels) -> Option<&InlayFragment> {
+        let Content::Inline(fragments) = &self.content else {
+            return None;
+        };
+        fragments
+            .iter()
+            .find(|f| f.inlay.is_some() && x >= f.x && x < f.x + f.width)
+            .and_then(|f| f.inlay.as_deref())
     }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn paint(
@@ -139,10 +187,33 @@ impl InputLine {
                     _ => px(0.),
                 };
                 for f in fragments {
+                    let mut x = offset + f.x;
+                    if let Some(inlay) = &f.inlay {
+                        if background {
+                            continue;
+                        }
+                        if let Some(color) = inlay.background {
+                            let inset = (height * 0.1).round();
+                            window.paint_quad(
+                                gpui::fill(
+                                    Bounds::new(
+                                        pos + point(x + inlay.box_x.start, inset),
+                                        size(
+                                            inlay.box_x.end - inlay.box_x.start,
+                                            height - inset * 2.,
+                                        ),
+                                    ),
+                                    color,
+                                )
+                                .corner_radii(px(3.)),
+                            );
+                        }
+                        x += inlay.text_x;
+                    }
                     if let Some(line) = &f.text {
                         paint(
                             line,
-                            pos + point(offset + f.x, px(0.)),
+                            pos + point(x, px(0.)),
                             TextAlign::Left,
                             None,
                             window,

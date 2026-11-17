@@ -13,7 +13,7 @@ use gpui_kit::component::{
     ActiveTheme as _, Sizable as _, StyledExt as _, h_flex,
     button::{Button, ButtonVariants as _},
     diff::{Diff, DiffAnnotation, DiffEvent, DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffMode, DiffSide, DiffState},
-    input::{CodeActionProvider, CompletionProvider, DefinitionProvider, DocumentRangeSemanticTokensProvider, Editor, EditorState, HoverProvider, InputEvent, Position, Rope, RopeExt as _},
+    input::{CodeActionProvider, CompletionProvider, DefinitionProvider, DocumentRangeSemanticTokensProvider, Editor, EditorState, HoverProvider, Inlay, InlayHintsProvider, InlayStyle, InputEvent, Position, Rope, RopeExt as _},
     resizable::{h_resizable, resizable_panel},
     tab::{Tab, TabBar},
     list::ListItem,
@@ -1442,6 +1442,18 @@ impl TaskView {
 
     /// The open files look again at what they differ from: after the
     /// setting of what the gutter compares with changed.
+    /// Hints shown or not, blame moved: each open file shows what it should.
+    pub fn code_settings_changed(&mut self, cx: &mut Context<Self>) {
+        for tab in &self.tabs {
+            if let TabKind::File(file) = &tab.kind {
+                file.update(cx, |f, cx| {
+                    f.show_line_blame(cx);
+                    f.editor.update(cx, |state, cx| state.refresh_inlay_hints(cx));
+                });
+            }
+        }
+    }
+
     pub fn reload_gutters(&mut self, cx: &mut Context<Self>) {
         for tab in &self.tabs {
             if let TabKind::File(file) = &tab.kind {

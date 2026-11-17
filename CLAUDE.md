@@ -64,9 +64,9 @@ src/desktop.rs     launcher entry, dash pin, restart, `--install` / `--uninstall
 src/naming.rs      branch names from task titles
 src/services.rs    `.ideae.toml` services (Run ▾): per-task port slots, IDEAE_PORT_<NAME>
 src/project_config.rs  `.ideae.toml` [task] (setup, teardown, check, copy), your own over the file, suggestions, runs
-vendor/            patched gpui-component, gpui-base, gpui-cn, gpui-fast-macos; changes marked `ideae patch`
+vendor/            patched gpui-component, gpui-base, gpui-cn, gpui-fast-linux, gpui-fast-macos; changes marked `ideae patch`
 assets/icon/       the app icon: ideae.svg, and the .icns and .ico made from it by scripts/icons.py
-scripts/           Xvfb driver for UI checks, check.sh (the tests to run before a push), icons.py, macos-app.sh (a .app around a binary)
+scripts/           Xvfb driver for UI checks, wayland.sh (the same in a headless GNOME Shell), check.sh (the tests to run before a push), icons.py, macos-app.sh (a .app around a binary)
 ```
 
 ## Build and test
@@ -99,6 +99,12 @@ IDEAE_STATE=/tmp/x/state.json scripts/drive.sh /tmp/x/run.log 7 \
 - The driver gives the app no D-Bus session. Never run the app with the user's session bus in tests: it can change their GNOME dash or send notifications.
 - Use a throwaway git repo for task create/delete tests, never a real project.
 - Debug aids: `IDEAE_LSP_DIR` (where servers get installed), `IDEAE_LSP_IDLE_SECS` (how long a task out of view keeps its language servers, default 900), `IDEAE_OPEN=path:line`, `IDEAE_URL=url`, `IDEAE_TAB=n`, `IDEAE_BEHIND` (the window opens without taking the keyboard or coming to the front: always set it on a machine someone is working at; a window that is covered is not redrawn, so what it shows may be its first frame), `IDEAE_KEYS="wait:8 ctrl-n g r e"` (presses those keys in the window, a pause where one is asked: for runs nobody can type in, as on macOS, where `cmd-` stands for `ctrl-`), `IDEAE_DEBUG`, `IDEAE_NO_SHELL_ENV` (started outside a terminal, the app takes no variables from the login shell), `IDEAE_NEW_TASK="title\nprompt"` with `IDEAE_VARIANTS=n` (starts a task in the first project, in n variants), `IDEAE_CHROME` (the browser tabs' Chrome, when none is installed where it is looked for), `IDEAE_WHOLE_TREES=1` (files watched as on macOS: whole trees, one stream, events filtered).
+- Wayland-only bugs (placement, maximize, resize, decorations) need a compositor: `scripts/wayland.sh` takes the same arguments and runs the app in a private headless GNOME Shell (own D-Bus session, runtime dir, home, settings; nothing on the screen). A small extension in `scripts/wayland/` drives the pointer and writes every frame change of the app's windows to `LOG.windows`; `windows` prints them, `@X,Y` is from the window's corner, `-- --run PROGRAM` runs another app (a GTK one shows what the compositor does on its own). It stops all it started when it ends.
+
+  ```bash
+  IDEAE_STATE=/tmp/x/state.json IDEAE_NO_DAEMON=1 scripts/wayland.sh /tmp/x/run.log 8 \
+    "dclick:@700,15 wait:1.5 windows dclick:@700,15 wait:1.5 windows shot:/tmp/x/w.png" -- --no-agent /path/to/test/repo
+  ```
 - Before finishing, make sure no Xvfb, test app, language server or test agent you started is still running. The user's own `ideae` instance (DISPLAY=:0) is not yours.
 
 ## Rules

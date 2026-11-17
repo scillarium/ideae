@@ -24,7 +24,7 @@ use super::{
     InputBaseState, PrepaintCaretGeometry, RangeDecorationStyle, TextDecoration,
     layout::{LastLayout, WhitespaceIndicators},
     mode::LayoutMode,
-    tab_stops::{expand_tabs, expanded_width, tab_stop_width},
+    tab_stops::{expand_tabs, expand_tabs_from, expanded_width, tab_stop_width},
 };
 
 fn diagnostic_highlight_style(
@@ -2025,6 +2025,7 @@ impl<M: InputModeKind> TextElement<M> {
                                 x,
                                 width,
                                 text: Some(shaped),
+                                inlay: None,
                             });
                             x += width;
                         }
@@ -2034,6 +2035,7 @@ impl<M: InputModeKind> TextElement<M> {
                             x,
                             width,
                             text: None,
+                            inlay: None,
                         });
                         x += width;
                         offset = local.end;
@@ -2052,6 +2054,7 @@ impl<M: InputModeKind> TextElement<M> {
                             x,
                             width,
                             text: Some(shaped),
+                            inlay: None,
                         });
                     }
                     lines.push(InputLine::inline(text[range].to_owned().into(), fragments));
@@ -2371,6 +2374,37 @@ impl<M: InputModeKind> TextElement<M> {
 
             debug_assert_eq!(line_item.len(), line_text.len());
 
+            // ideae patch: a line with inlays is cut at them.
+            let line_start = last_layout.visible_line_byte_offsets[vi];
+            let inlays = if state.masked {
+                &[][..]
+            } else {
+                state
+                    .display_map
+                    .inlays_in_range(line_start..line_start + line_text.len())
+            };
+            if !inlays.is_empty() {
+                lines.push(Self::layout_inlaid_line(
+                    state,
+                    InlaidLine {
+                        text: &line_text,
+                        start: line_start,
+                        rows: &line_item.wrapped_lines,
+                        indent: line_item.indent,
+                        inlays,
+                    },
+                    runs,
+                    run_offset,
+                    bg_segments,
+                    font_size,
+                    tab_stop,
+                    whitespace_indicators.clone(),
+                    window,
+                ));
+                run_offset += line_text.len() + 1;
+                continue;
+            }
+
             let mut wrapped_lines: SmallVec<[ShapedLine; 1]> = SmallVec::with_capacity(1);
             let mut line_has_background = false;
 
@@ -2422,6 +2456,145 @@ impl<M: InputModeKind> TextElement<M> {
         }
 
         lines
+    }
+
+    /// ideae patch: a line with inlays. Each row is cut at the inlays drawn
+    /// on it: the text between them is shaped with its runs as any row is
+    /// (its tab stops counted from the row's text alone, as the wrapper
+    /// measures it), and each inlay in its own style. Offsets stay the
+    /// row's bytes; an inlay is a fragment with an empty range.
+    #[allow(clippy::too_many_arguments)]
+    fn layout_inlaid_line(
+        state: &InputBaseState<M>,
+        line: InlaidLine<'_>,
+        runs: &[TextRun],
+        run_offset: usize,
+        bg_segments: &[(Range<usize>, Hsla)],
+        font_size: Pixels,
+        tab_stop: Pixels,
+        whitespace_indicators: Option<WhitespaceIndicators>,
+        window: &mut Window,
+    ) -> LineLayout {
+        use crate::input::display_map::{InlayFragment, InlineFragment, InputLine, inlay_on_row};
+
+        let font = window.text_style().font();
+        let space = {
+            let font_id = window.text_system().resolve_font(&font);
+            window.text_system().layout_width(font_id, font_size, ' ')
+        };
+        let muted = state.editor_style.muted_foreground;
+        let mut has_bg = false;
+        let mut shape_text = |part: Range<usize>, origin: Pixels, window: &mut Window| {
+            let part_runs = runs_for_range(runs, run_offset, &part);
+            let part_runs = if bg_segments.is_empty() {
+                part_runs
+            } else {
+                split_runs_by_bg_segments(line.start + part.start, &part_runs, bg_segments)
+            };
+            let text: SharedString = line.text[part].to_string().into();
+            let part_runs = align_runs_to_char_boundaries(&text, &part_runs).unwrap_or(part_runs);
+            has_bg |= has_background(&part_runs);
+            let mut shaped = window
+                .text_system()
+                .shape_line(text, font_size, &part_runs, None);
+            expand_tabs_from(&mut shaped, tab_stop, origin);
+            shaped
+        };
+
+        let mut lines: SmallVec<[InputLine; 1]> = SmallVec::with_capacity(line.rows.len());
+        for (row_ix, row) in line.rows.iter().enumerate() {
+            let (first, last) = (row_ix == 0, row_ix + 1 == line.rows.len());
+            let mut fragments = Vec::new();
+            let (mut at, mut x, mut text_x) = (row.start, px(0.), px(0.));
+            for inlay in line.inlays.iter().map(|e| &e.inlay) {
+                let local = inlay.offset - line.start;
+                if !inlay_on_row(local, inlay.bias, row, first, last) {
+                    continue;
+                }
+                if local > at {
+                    let shaped = shape_text(at..local, text_x, window);
+                    let width = shaped.width;
+                    fragments.push(InlineFragment {
+                        range: at - row.start..local - row.start,
+                        x,
+                        width,
+                        text: Some(shaped),
+                        inlay: None,
+                    });
+                    x += width;
+                    text_x += width;
+                    at = local;
+                }
+                let color = inlay.style.color.unwrap_or(muted);
+                let hovered = inlay.id.is_some() && state.hovered_inlay == inlay.id;
+                let run = TextRun {
+                    len: inlay.text.len(),
+                    font: inlay.style.font(&font),
+                    color,
+                    background_color: None,
+                    underline: hovered.then_some(UnderlineStyle {
+                        thickness: px(1.),
+                        color: Some(color),
+                        wavy: false,
+                    }),
+                    strikethrough: None,
+                };
+                let shaped = window
+                    .text_system()
+                    .shape_line(inlay.text.clone(), font_size, &[run], None);
+                let (before, after) = inlay.style.room(space);
+                let width = before + shaped.width + after;
+                let box_x = space * inlay.style.margin_left.max(0.)
+                    ..width - space * inlay.style.margin_right.max(0.);
+                fragments.push(InlineFragment {
+                    range: local - row.start..local - row.start,
+                    x,
+                    width,
+                    text: Some(shaped),
+                    inlay: Some(Box::new(InlayFragment {
+                        bias: inlay.bias,
+                        id: inlay.id.clone(),
+                        background: inlay.style.background,
+                        box_x,
+                        text_x: before,
+                        trailing: local == line.text.len(),
+                    })),
+                });
+                x += width;
+            }
+            if at < row.end {
+                let shaped = shape_text(at..row.end, text_x, window);
+                let width = shaped.width;
+                fragments.push(InlineFragment {
+                    range: at - row.start..row.end - row.start,
+                    x,
+                    width,
+                    text: Some(shaped),
+                    inlay: None,
+                });
+            }
+            lines.push(InputLine::inline(
+                line.text[row.clone()].to_string().into(),
+                fragments,
+            ));
+        }
+
+        let wrap_indent = if line.indent > 0 && lines.len() > 1 {
+            let indent_byte_len = line
+                .text
+                .char_indices()
+                .nth(line.indent as usize)
+                .map(|(ix, _)| ix)
+                .unwrap_or(line.text.len());
+            lines[0].x_for_index(indent_byte_len)
+        } else {
+            px(0.)
+        };
+        LineLayout::new()
+            .inline_lines(lines)
+            .wrap_indent(wrap_indent)
+            .with_background(has_bg)
+            .with_whitespaces(whitespace_indicators)
     }
 
     /// First usize is the offset of skipped.
@@ -2575,6 +2748,17 @@ impl<M: InputModeKind> TextElement<M> {
 
         Some(styles)
     }
+}
+
+/// ideae patch: a buffer line laid out with its inlays.
+struct InlaidLine<'a> {
+    text: &'a str,
+    /// Its offset in the buffer.
+    start: usize,
+    /// Its rows, as byte ranges of it.
+    rows: &'a [Range<usize>],
+    indent: u32,
+    inlays: &'a [crate::input::display_map::InlayEntry],
 }
 
 /// Layout data for a single caret, produced by [`TextElement::layout_cursors`].
@@ -3839,6 +4023,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             if bounds.size.height > px(0.) {
                 state.reveal_at = None;
             }
+            M::after_layout(state, window, cx);
 
             // Layout consumers need changed geometry, not another notification
             // for every paint of an unchanged input.
@@ -3855,6 +4040,10 @@ impl<M: InputModeKind> Element for TextElement<M> {
             && !window.modifiers().alt
         {
             window.set_cursor_style(gpui::CursorStyle::PointingHand, &hitbox);
+        }
+        // ideae patch: an inlay with an id is clicked.
+        if self.state.read(cx).hovered_inlay.is_some() {
+            window.set_cursor_style(gpui::CursorStyle::PointingHand, &prepaint.hitbox);
         }
 
         // Paint inline completion first line suffix (after cursor on same line)

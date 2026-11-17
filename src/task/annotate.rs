@@ -68,7 +68,54 @@ pub(super) fn blame_notes(blame: &[Option<Arc<git::BlameLine>>], text: Hsla, tin
     GutterNotes { chars: WIDTH, rows }
 }
 
+/// The key the blame of the cursor's line is set under, as an inlay.
+const LINE_BLAME: &str = "blame";
+/// What starts the id of that inlay, before the commit's hash.
+pub(super) const LINE_BLAME_ID: &str = "blame:";
+
+/// The blame of a line as told at its end: who, when, why; or that it is
+/// not committed yet.
+pub(super) fn line_blame_text(line: &git::BlameLine) -> String {
+    if line.uncommitted() {
+        return "Not committed yet".into();
+    }
+    const SUMMARY: usize = 60;
+    let summary = line.summary.trim();
+    let summary = match summary.char_indices().nth(SUMMARY) {
+        Some((cut, _)) => format!("{}…", summary[..cut].trim_end()),
+        None => summary.to_string(),
+    };
+    format!("{}, {} · {summary}", line.author, git::ago(line.time))
+}
+
 impl FileView {
+    /// Who last changed the cursor's line, at its end: from the blame read
+    /// when the file was, nothing per move but the one inlay. Not while the
+    /// text has unsaved edits (the lines moved), nor when Settings put it
+    /// in the header.
+    pub(super) fn show_line_blame(&mut self, cx: &mut Context<Self>) {
+        let line = self.cursor_line as usize;
+        let info = self
+            .blame
+            .get(line)
+            .cloned()
+            .flatten()
+            .filter(|_| !self.dirty && crate::state::with_settings(|s| s.blame_at_line_end));
+        let color = cx.theme().muted_foreground.opacity(0.75);
+        self.editor.update(cx, |state, cx| {
+            let inlays = info
+                .filter(|_| line < state.text().lines_len())
+                .map(|info| {
+                    let inlay = Inlay::new(state.text().line_end_offset(line), line_blame_text(&info))
+                        .style(InlayStyle { color: Some(color), margin_left: 4., ..Default::default() });
+                    if info.uncommitted() { inlay } else { inlay.id(format!("{LINE_BLAME_ID}{}", info.hash)) }
+                })
+                .into_iter()
+                .collect();
+            state.set_inlays(LINE_BLAME, None, inlays, cx);
+        });
+    }
+
     /// Annotate with Git Blame, or close the annotations.
     pub(super) fn toggle_blame(&mut self, cx: &mut Context<Self>) {
         self.annotate = !self.annotate;
@@ -141,7 +188,7 @@ impl FileView {
 
 #[cfg(test)]
 mod tests {
-    use super::{WIDTH, blame_label, blame_notes, day};
+    use super::{WIDTH, blame_label, blame_notes, day, line_blame_text};
     use crate::git;
     use std::sync::Arc;
 
@@ -157,6 +204,18 @@ mod tests {
         let l = line("abc", "Maximilian Mustermann", 1_793_664_000).unwrap();
         assert_eq!(blame_label(&l), "2026-11-03 Maximilia");
         assert!(blame_label(&l).chars().count() <= WIDTH);
+    }
+
+    #[test]
+    fn the_blame_at_a_line_end_is_who_when_and_why_cut_short() {
+        let mut l = git::BlameLine { hash: "abc".into(), author: "Ann Lee".into(), time: 0, summary: "Fix the thing".into() };
+        let text = line_blame_text(&l);
+        assert!(text.starts_with("Ann Lee, ") && text.ends_with(" · Fix the thing"), "{text}");
+        l.summary = "word ".repeat(30);
+        let text = line_blame_text(&l);
+        assert!(text.ends_with("word…") && text.chars().count() < 100, "{text}");
+        l.hash = "0".repeat(40);
+        assert_eq!(line_blame_text(&l), "Not committed yet");
     }
 
     #[test]

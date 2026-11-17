@@ -8,8 +8,12 @@
 /// The goal is to provide a clean, unified API where Editor only needs to know
 /// about `BufferPoint ↔ DisplayPoint` mapping, without worrying about internal wrap/fold complexity.
 mod display_map;
+// ideae patch: text shown between the buffer's characters.
+mod inlay_map;
+pub use inlay_map::{Inlay, InlayBias, InlayStyle};
+pub(crate) use inlay_map::{InlayEntry, on_row as inlay_on_row};
 mod inline_line;
-pub(crate) use inline_line::{InlineFragment, InputLine};
+pub(crate) use inline_line::{InlayFragment, InlineFragment, InputLine};
 mod fold_map;
 mod folding;
 mod text_wrapper;

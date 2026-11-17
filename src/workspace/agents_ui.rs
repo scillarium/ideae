@@ -267,7 +267,7 @@ mod tests {
         };
 
         step(cx, &mut |w, window, cx| w.create_task(0, "Fix login".into(), "Make the file.".into(), vec![String::new(), String::new()], vec!["claude".into(), "other".into()], window, cx));
-        let paths: Vec<std::path::PathBuf> = workspace.update(cx, |w, _| w.projects[0].tasks.iter().map(|t| t.path.clone()).collect());
+        let paths: Vec<std::path::PathBuf> = workspace.update(cx, |w, _| w.projects[0].work().iter().map(|t| t.path.clone()).collect());
         assert_eq!(paths.len(), 2);
         let (a, b) = (paths[0].clone(), paths[1].clone());
         wait(cx, "both agents to start", &mut |_| a.join(".claude-args").is_file() && b.join(".other-env").is_file());
@@ -275,7 +275,7 @@ mod tests {
         // A: Claude Code under the id the app chose, unasked as variants are, with the hooks.
         let args = std::fs::read_to_string(a.join(".claude-args")).unwrap();
         let id = workspace.update(cx, |w, _| {
-            let t = &w.projects[0].tasks[0];
+            let t = &w.projects[0].work()[0];
             assert_eq!((t.agent.as_str(), t.sessions.len()), ("claude", 1));
             t.sessions[0].id.clone().expect("an id chosen")
         });
@@ -283,7 +283,7 @@ mod tests {
         // B: the other program, with its profile's environment.
         assert_eq!(std::fs::read_to_string(b.join(".other-env")).unwrap().trim(), "second");
         workspace.update(cx, |w, _| {
-            let t = &w.projects[0].tasks[1];
+            let t = &w.projects[0].work()[1];
             assert_eq!((t.sessions[0].profile.as_str(), t.sessions[0].id.as_deref()), ("other", None));
         });
 
@@ -293,18 +293,18 @@ mod tests {
             w.on_hook(event, window, cx);
         });
         workspace.update(cx, |w, cx| {
-            let t = &w.projects[0].tasks[0];
+            let t = &w.projects[0].work()[0];
             assert_eq!(t.sessions[0].id.as_deref(), Some("after-clear"));
             let again = t.view.as_ref().unwrap().read(cx).launch.as_ref().unwrap().again().command();
             assert!(again.contains("--resume after-clear"), "{again}");
-            assert_eq!(w.snapshot(cx).projects[0].tasks[0].sessions[0].id.as_deref(), Some("after-clear"), "kept in the state");
+            assert_eq!(w.snapshot(cx).projects[0].tasks.iter().find(|t| !t.main).unwrap().sessions[0].id.as_deref(), Some("after-clear"), "kept in the state");
         });
 
         // B tells nothing: it is seen to work while it writes, and to be done at the bell.
-        wait(cx, "B guessed at work", &mut |cx| workspace.update(cx, |w, cx| w.projects[0].tasks[1].view.as_ref().unwrap().read(cx).agent_status == AgentStatus::Working));
+        wait(cx, "B guessed at work", &mut |cx| workspace.update(cx, |w, cx| w.projects[0].work()[1].view.as_ref().unwrap().read(cx).agent_status == AgentStatus::Working));
         wait(cx, "B guessed done", &mut |cx| {
             workspace.update(cx, |w, cx| {
-                let v = w.projects[0].tasks[1].view.as_ref().unwrap().read(cx);
+                let v = w.projects[0].work()[1].view.as_ref().unwrap().read(cx);
                 v.agent_status == AgentStatus::Done && v.status_guessed
             })
         });
@@ -320,7 +320,7 @@ mod tests {
         // A carried on by the other agent: told the task and where to look.
         step(cx, &mut |w, window, cx| w.continue_with(&a, "other", window, cx));
         workspace.update(cx, |w, _| {
-            let t = &w.projects[0].tasks[0];
+            let t = &w.projects[0].work()[0];
             assert_eq!(t.sessions.iter().map(|s| s.profile.as_str()).collect::<Vec<_>>(), ["claude", "other"], "the earlier session stays recorded");
         });
         wait(cx, "the handoff to reach the new agent", &mut |_| std::fs::read_to_string(a.join(".other-told")).is_ok_and(|told| told.contains("Make the file.") && told.contains("git log")));

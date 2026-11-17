@@ -42,6 +42,8 @@ pub use gpui_base::input::{
 pub use gpui_base::input::{EditorMode, InputMode, InputModeKind, TextareaMode};
 // ideae patch: what the editor holds of a language server's problems, to step through them.
 pub use gpui_base::input::{DiagnosticEntry, DiagnosticSeverity};
+// ideae patch: text shown in the editor that is not in the buffer.
+pub use gpui_base::input::{INLAY_HINTS_KEY, Inlay, InlayBias, InlayHintsProvider, InlayStyle};
 #[doc(hidden)]
 mod editor;
 mod group;

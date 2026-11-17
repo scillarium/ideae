@@ -339,8 +339,11 @@ impl FileView {
         // Told on every change, not only when it turns dirty: the Structure
         // panel follows the text.
         let was_dirty = std::mem::replace(&mut self.dirty, !self.saved.is(self.editor.read(cx).text()));
-        if self.annotate && was_dirty != self.dirty {
-            self.show_annotations(cx);
+        if was_dirty != self.dirty {
+            if self.annotate {
+                self.show_annotations(cx);
+            }
+            self.show_line_blame(cx);
         }
         cx.notify();
         self.read_scopes(Duration::from_millis(500), cx);
@@ -500,6 +503,7 @@ impl FileView {
                 this.blame = Rc::new(blame);
                 this.annotations = None;
                 this.show_annotations(cx);
+                this.show_line_blame(cx);
                 this.committed = committed.map(Arc::from);
                 this.mark_changes(false, cx);
                 cx.notify();
@@ -508,7 +512,7 @@ impl FileView {
     }
 
     pub(super) fn render_blame(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.dirty {
+        if self.dirty || crate::state::with_settings(|s| s.blame_at_line_end) {
             return None;
         }
         let info = self.blame.get(self.cursor_line as usize)?.clone()?;
@@ -1347,6 +1351,19 @@ impl DocumentRangeSemanticTokensProvider for LspBridge {
             }
             tokens
         }))
+    }
+}
+
+impl InlayHintsProvider for LspBridge {
+    /// The server has the text already: it is told of each edit before the
+    /// editor asks, after a longer pause.
+    fn inlay_hints(&self, text: &Rope, range: std::ops::Range<usize>, _: &mut Window, cx: &mut App) -> Task<anyhow::Result<Vec<lsp_types::InlayHint>>> {
+        if !crate::state::with_settings(|s| s.inlay_hints) {
+            return Task::ready(Ok(Vec::new()));
+        }
+        let range = lsp_types::Range::new(text.offset_to_position(range.start), text.offset_to_position(range.end));
+        let (client, uri) = (self.client.clone(), self.uri.clone());
+        cx.background_spawn(crate::procs::on_thread(move || client.inlay_hints(&uri, range)))
     }
 }
 

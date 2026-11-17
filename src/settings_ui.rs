@@ -79,6 +79,14 @@ fn pages(draft: &Draft, recording: &Rc<Cell<Option<&'static str>>>, catcher: &Rc
         })
         .default_value(SharedString::from(default.token_warn_k.to_string()))
     };
+    let blame_place = {
+        let (read, write) = (draft.clone(), draft.clone());
+        let options = vec![(SharedString::from("line"), SharedString::from("At the end of the line")), (SharedString::from("header"), SharedString::from("In the file's header"))];
+        SettingField::dropdown(options, move |_| SharedString::from(if read.borrow().blame_at_line_end { "line" } else { "header" }), move |value, _| {
+            write.borrow_mut().blame_at_line_end = value.as_ref() == "line"
+        })
+        .default_value(SharedString::from("line"))
+    };
     let restore_with = {
         let (read, write) = (draft.clone(), draft.clone());
         let options = vec![(SharedString::from("full"), SharedString::from("The full conversation")), (SharedString::from("summary"), SharedString::from("A summary only"))];
@@ -267,6 +275,16 @@ fn pages(draft: &Draft, recording: &Rc<Cell<Option<&'static str>>>, catcher: &Rc
                     "Names are colored by what the server knows them to be (a type, a parameter, a method), over the grammar's colors.",
                     |s| s.semantic_colors,
                     |s, v| s.semantic_colors = v,
+                ))
+                .item(switch(
+                    draft,
+                    "Hints from the language server",
+                    "Types the server worked out are shown after names, and the names of parameters before the arguments given them, in the code itself.",
+                    |s| s.inlay_hints,
+                    |s, v| s.inlay_hints = v,
+                ))
+                .item(SettingItem::new("Who changed the line", blame_place).description(
+                    "Who last changed the line the cursor is on, when, and why: at the end of that line, or in the file's header. A click on it opens the commit.",
                 ))
                 .item(switch(
                     draft,

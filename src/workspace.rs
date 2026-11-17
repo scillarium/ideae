@@ -133,6 +133,14 @@ pub struct Project {
     pub merged_checked: Option<std::time::Instant>,
 }
 
+#[cfg(test)]
+impl Project {
+    /// Its tasks but the main thread, which every project has.
+    pub fn work(&self) -> Vec<&TaskEntry> {
+        self.tasks.iter().filter(|t| !t.main).collect()
+    }
+}
+
 impl Project {
     fn new(path: PathBuf) -> Self {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
@@ -2205,6 +2213,11 @@ impl Workspace {
         if old.theme != new.theme {
             theme::choose(&new.theme, cx);
             theme::apply_everywhere(self.appearance, cx);
+        }
+        if old.inlay_hints != new.inlay_hints || old.blame_at_line_end != new.blame_at_line_end {
+            for view in self.views() {
+                view.update(cx, |t, cx| t.code_settings_changed(cx));
+            }
         }
         if old.gutter_since_base != new.gutter_since_base {
             for view in self.views() {

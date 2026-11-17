@@ -1,0 +1,6 @@
+{
+  "uuid": "ideae-harness@ideae",
+  "name": "ideae harness",
+  "description": "Test driver for scripts/wayland.sh: logs window frames, synthesizes pointer input, takes screenshots.",
+  "shell-version": ["49", "50", "51", "52"]
+}

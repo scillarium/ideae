@@ -222,10 +222,14 @@ impl TaskView {
                 lsp.completion_provider = None;
                 lsp.code_action_providers.clear();
                 lsp.semantic_tokens_provider = None;
+                lsp.inlay_hints_provider = None;
             }
             if lsp.definition_provider.is_none() {
                 lsp.definition_provider = Some(search);
                 lsp.show_document = Some(show_document_handler(task_weak, this_path));
+            }
+            if replace {
+                state.refresh_inlay_hints(cx);
             }
             cx.notify();
         });

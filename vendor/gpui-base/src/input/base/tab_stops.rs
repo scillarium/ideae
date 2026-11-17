@@ -26,7 +26,13 @@ pub(crate) fn tab_stop_width(
 /// Stops are counted from the start of `line`, so a soft-wrapped row starts
 /// its own stops, the same way the wrapper measures it.
 pub(crate) fn expand_tabs(line: &mut ShapedLine, stop: Pixels) {
-    if let Some(layout) = expanded_layout(line, &line.text, stop) {
+    expand_tabs_from(line, stop, px(0.));
+}
+
+/// ideae patch: [`expand_tabs`] for a piece of a row that starts `origin`
+/// from the row's start (text cut by an inlay), so its stops stay the row's.
+pub(crate) fn expand_tabs_from(line: &mut ShapedLine, stop: Pixels, origin: Pixels) {
+    if let Some(layout) = expanded_layout(line, &line.text, stop, origin) {
         **line = Arc::new(layout);
     }
 }
@@ -38,7 +44,7 @@ pub(crate) fn expanded_width(layout: &LineLayout, text: &str, stop: Pixels) -> P
     }
 
     layout.width
-        + tab_shifts(layout, text, stop)
+        + tab_shifts(layout, text, stop, px(0.))
             .last()
             .map_or(px(0.), |(_, shift)| shift)
 }
@@ -48,6 +54,7 @@ fn tab_shifts<'a>(
     layout: &'a LineLayout,
     text: &'a str,
     stop: Pixels,
+    origin: Pixels,
 ) -> impl Iterator<Item = (usize, Pixels)> + 'a {
     let mut glyphs = layout.runs.iter().flat_map(|run| &run.glyphs).peekable();
     // Tab boundaries increase monotonically. Keep the cursor between lookups
@@ -63,9 +70,10 @@ fn tab_shifts<'a>(
     // after every tab can put a stop just below its boundary, making the next
     // tab land on that same stop instead of advancing.
     let stop = f64::from(f32::from(stop));
+    let origin = f64::from(f32::from(origin));
     text.match_indices('\t').scan(0_f64, move |shift, (ix, _)| {
-        let start = f64::from(f32::from(x_for_index(ix))) + *shift;
-        let end = f64::from(f32::from(x_for_index(ix + 1)));
+        let start = origin + f64::from(f32::from(x_for_index(ix))) + *shift;
+        let end = origin + f64::from(f32::from(x_for_index(ix + 1)));
         let next_stop = stop * ((start / stop).floor() + 1.);
         *shift = next_stop - end;
         Some((ix, px(*shift as f32)))
@@ -73,12 +81,17 @@ fn tab_shifts<'a>(
 }
 
 /// `layout` with its tabs widened, or `None` when it has none to widen.
-fn expanded_layout(layout: &LineLayout, text: &str, stop: Pixels) -> Option<LineLayout> {
+fn expanded_layout(
+    layout: &LineLayout,
+    text: &str,
+    stop: Pixels,
+    origin: Pixels,
+) -> Option<LineLayout> {
     if stop <= px(0.) || !text.contains('\t') {
         return None;
     }
 
-    let shifts: Vec<_> = tab_shifts(layout, text, stop).collect();
+    let shifts: Vec<_> = tab_shifts(layout, text, stop, origin).collect();
     let shift = shifts.last().map_or(px(0.), |(_, shift)| *shift);
 
     let shift_after = |index: usize| {
@@ -162,13 +175,13 @@ mod tests {
 
     #[test]
     fn leaves_lines_without_tabs_alone() {
-        assert!(expanded_layout(&layout("abc", 10., 0.), "abc", px(40.)).is_none());
+        assert!(expanded_layout(&layout("abc", 10., 0.), "abc", px(40.), px(0.)).is_none());
     }
 
     #[test]
     fn zero_width_tabs_reach_the_next_stop() {
         let text = "\t\tx";
-        let expanded = expanded_layout(&layout(text, 10., 0.), text, px(40.)).unwrap();
+        let expanded = expanded_layout(&layout(text, 10., 0.), text, px(40.), px(0.)).unwrap();
         assert_eq!(xs(&expanded), vec![0., 40., 80.]);
         assert_eq!(expanded.width, px(90.));
     }
@@ -176,14 +189,14 @@ mod tests {
     #[test]
     fn a_tab_after_text_only_fills_up_to_the_stop() {
         let text = "ab\tc";
-        let expanded = expanded_layout(&layout(text, 10., 0.), text, px(40.)).unwrap();
+        let expanded = expanded_layout(&layout(text, 10., 0.), text, px(40.), px(0.)).unwrap();
         assert_eq!(xs(&expanded), vec![0., 10., 20., 40.]);
     }
 
     #[test]
     fn a_tab_on_a_stop_takes_a_whole_stop() {
         let text = "abcd\te";
-        let expanded = expanded_layout(&layout(text, 10., 0.), text, px(40.)).unwrap();
+        let expanded = expanded_layout(&layout(text, 10., 0.), text, px(40.), px(0.)).unwrap();
         assert_eq!(xs(&expanded)[5], 80.);
     }
 
@@ -193,7 +206,7 @@ mod tests {
         for stop in [14.4, 16.8, 28.8, 33.6] {
             for tab_advance in [0., 28.] {
                 let shaped = layout(&text, 10., tab_advance);
-                let expanded = expanded_layout(&shaped, &text, px(stop)).unwrap();
+                let expanded = expanded_layout(&shaped, &text, px(stop), px(0.)).unwrap();
                 for (index, glyph) in expanded.runs[0].glyphs.iter().enumerate() {
                     let expected = stop * index as f32;
                     assert!(
@@ -210,7 +223,7 @@ mod tests {
     #[test]
     fn shaper_widths_for_tabs_are_replaced() {
         let text = "\tx";
-        let expanded = expanded_layout(&layout(text, 10., 28.), text, px(40.)).unwrap();
+        let expanded = expanded_layout(&layout(text, 10., 28.), text, px(40.), px(0.)).unwrap();
         assert_eq!(xs(&expanded), vec![0., 40.]);
         assert_eq!(expanded.width, px(50.));
     }
@@ -234,7 +247,7 @@ mod tests {
             glyphs: remaining,
         });
 
-        let expanded = expanded_layout(&shaped, text, px(40.)).unwrap();
+        let expanded = expanded_layout(&shaped, text, px(40.), px(0.)).unwrap();
         let positions: Vec<_> = expanded
             .runs
             .iter()
@@ -253,7 +266,7 @@ mod tests {
         let text = "\tx".repeat(count);
         let shaped = layout(&text, 10., 0.);
         let expected_width = px(count as f32 * 40. + 10.);
-        let expanded = expanded_layout(&shaped, &text, px(40.)).unwrap();
+        let expanded = expanded_layout(&shaped, &text, px(40.), px(0.)).unwrap();
 
         assert_eq!(expanded.width, expected_width);
         assert_eq!(expanded_width(&shaped, &text, px(40.)), expected_width);

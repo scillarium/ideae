@@ -540,6 +540,7 @@ impl LspClient {
                                 "activeParameterSupport": true,
                             },
                         },
+                        "inlayHint": {},
                         "semanticTokens": {
                             "requests": { "range": true, "full": true },
                             "tokenTypes": SEMANTIC_TYPES.map(|(name, _)| name),
@@ -817,6 +818,47 @@ impl LspClient {
         Ok(serde_json::from_value::<Option<lsp_types::SemanticTokens>>(value)?.unwrap_or_default())
     }
 
+    /// What a server asks of its settings by `workspace/configuration`; null,
+/// and it takes its defaults.
+fn configuration(section: &str) -> Value {
+    match section {
+        // kotlin-lsp shows only the kinds of hints named here as on; with
+        // none it shows none.
+        "jetbrains.kotlin" => {
+            const ON: &[&str] = &[
+                "parameters",
+                "parameters.compiled",
+                "type.property",
+                "type.variable",
+                "type.function.return",
+                "type.function.parameter",
+                "lambda.return",
+                "lambda.receivers.parameters",
+                "value.ranges",
+                "value.kotlin.time",
+            ];
+            json!({ "hints": ON.iter().map(|kind| (kind.to_string(), Value::Bool(true))).collect::<serde_json::Map<_, _>>() })
+        }
+        _ => Value::Null,
+    }
+}
+
+/// textDocument/inlayHint: the types and parameter names the server
+    /// would show in a range; none from a server that has no hints.
+    pub fn inlay_hints(&self, uri: &str, range: lsp_types::Range) -> Result<Vec<lsp_types::InlayHint>> {
+        self.wait_ready()?;
+        let supported = {
+            let capabilities = self.capabilities.lock().unwrap();
+            let provider = &capabilities["inlayHintProvider"];
+            provider.as_bool().unwrap_or(provider.is_object())
+        };
+        if !supported {
+            return Ok(Vec::new());
+        }
+        let value = self.raw_request("textDocument/inlayHint", json!({ "textDocument": { "uri": uri }, "range": range }))?;
+        Ok(serde_json::from_value::<Option<Vec<lsp_types::InlayHint>>>(value)?.unwrap_or_default())
+    }
+
     /// textDocument/rename: every edit that gives the symbol its new name.
     pub fn rename(&self, uri: &str, pos: lsp_types::Position, name: &str) -> Result<Option<lsp_types::WorkspaceEdit>> {
         self.wait_ready()?;
@@ -1072,8 +1114,8 @@ fn read_messages(stdout: impl Read, out: mpsc::Sender<Out>, pending: &Pending, p
             // A request from the server. Answer so it never waits on us.
             (Some(id), Some(method)) => {
                 let result = if method == "workspace/configuration" {
-                    let n = message["params"]["items"].as_array().map_or(0, Vec::len);
-                    Value::Array(vec![Value::Null; n])
+                    let items = message["params"]["items"].as_array().map(Vec::as_slice).unwrap_or_default();
+                    Value::Array(items.iter().map(|item| LspClient::configuration(item["section"].as_str().unwrap_or_default())).collect())
                 } else {
                     Value::Null
                 };
@@ -1395,6 +1437,15 @@ mod tests {
         // `fn greeting`: the first token named is the function, at 0:3.
         let first = tokens.data.iter().find(|t| legend[t.token_type as usize] == "function").unwrap();
         assert_eq!((first.delta_start, first.length), (3, 8));
+        // `let   words`: its type, after the name.
+        let hints = client.inlay_hints(&uri, all).unwrap();
+        let words = hints.iter().find(|h| h.position == lsp_types::Position::new(5, 15)).unwrap_or_else(|| panic!("no hint after `words`: {hints:?}"));
+        let label = match &words.label {
+            lsp_types::InlayHintLabel::String(label) => label.clone(),
+            lsp_types::InlayHintLabel::LabelParts(parts) => parts.iter().map(|p| p.value.as_str()).collect(),
+        };
+        assert!(label.contains("String"), "{hints:?}");
+        assert_eq!(words.kind, Some(lsp_types::InlayHintKind::TYPE));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1523,5 +1574,19 @@ mod language_tests {
         assert_eq!(of("main.tf"), "hcl");
         assert_eq!(super::extension_of(Path::new("/a/phpunit.xml.dist")), "xml");
         assert_eq!(super::extension_of(Path::new("/a/Makefile")), "");
+    }
+}
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+
+    /// kotlin-lsp shows a kind of hint only when it is named as on.
+    #[test]
+    fn kotlin_lsp_is_told_which_hints_to_show() {
+        let kotlin = LspClient::configuration("jetbrains.kotlin");
+        assert_eq!(kotlin["hints"]["type.variable"], Value::Bool(true));
+        assert_eq!(kotlin["hints"]["parameters"], Value::Bool(true));
+        assert_eq!(LspClient::configuration("intelephense"), Value::Null);
     }
 }

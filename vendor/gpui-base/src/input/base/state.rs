@@ -134,6 +134,8 @@ pub enum InputEvent {
     PressEnter { secondary: bool, shift: bool },
     Focus,
     Blur,
+    /// ideae patch: a click on an inlay that has an id.
+    InlayClick { id: SharedString },
 }
 
 pub(super) const CONTEXT: &str = "Input";
@@ -542,6 +544,8 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) masked: bool,
     /// ideae patch: marks in the gutter, by buffer row (see [`LineMarks`]).
     pub(super) line_marks: std::rc::Rc<LineMarks>,
+    /// ideae patch: the id of the clickable inlay under the pointer.
+    pub(super) hovered_inlay: Option<SharedString>,
     /// ideae patch: notes and bookmarks in the gutter (see `gutter.rs`).
     pub(super) gutter: super::gutter::Gutter,
     /// ideae patch: the declarations of the text as line ranges, by first
@@ -1045,6 +1049,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             text_align: TextAlign::Left,
             masked: false,
             line_marks: Default::default(),
+            hovered_inlay: None,
             gutter: Default::default(),
             sticky_scopes: Default::default(),
             sticky_hits: Vec::new(),
@@ -1304,6 +1309,9 @@ impl<M: InputModeKind> InputBaseState<M> {
     ) {
         let content = value.into();
         self.inline_tokens = None;
+        // ideae patch: inlays belong to the text they were set for.
+        self.display_map.clear_all_inlays();
+        self.hovered_inlay = None;
         self.undo_manager.set_ignoring(true);
         self.emit_events = false;
         self.replace_text(content.text().clone(), window, cx);
@@ -2779,6 +2787,14 @@ impl<M: InputModeKind> InputBaseState<M> {
         if self.gutter_press_at(event.position, event.button == MouseButton::Right, window, cx) {
             return;
         }
+        // ideae patch: a click on an inlay with an id is the inlay's.
+        if event.button == MouseButton::Left
+            && event.click_count == 1
+            && !event.modifiers.modified()
+            && self.inlay_press(event.position, cx)
+        {
+            return;
+        }
         // A tap asks for the virtual keyboard. Focus alone does not when it
         // moves from another input, or stays here, after the user hid it.
         if event.button == MouseButton::Left
@@ -2916,6 +2932,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         // no Ctrl+click definition there.
         let within_bounds = self.last_bounds.is_some() && self.input_bounds.contains(&event.position);
         self.gutter_hover(event.position, window, cx);
+        self.inlay_hover(
+            (within_bounds && event.pressed_button.is_none()).then_some(event.position),
+            cx,
+        );
         if !within_bounds {
             // Clear hover when mouse leaves the input
             M::clear_hover_state(self, cx);

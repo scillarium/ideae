@@ -108,6 +108,7 @@ impl WrapMap {
         cx: &mut App,
     ) {
         self.wrapper.adjust_inline_metrics(range, new_text.len());
+        self.wrapper.inlays.edit(range, new_text.len());
         self.wrapper.update(changed_text, range, new_text, cx);
     }
 
@@ -148,6 +149,21 @@ impl WrapMap {
     pub(super) fn set_text(&mut self, text: &Rope, cx: &mut App) {
         self.wrapper.set_default_text(text);
         self.wrapper.prepare_if_need(text, cx);
+    }
+
+    pub(super) fn clear_inlays(&mut self) {
+        self.wrapper.inlays = Default::default();
+    }
+
+    /// ideae patch: see [`TextWrapper::set_inlays`].
+    pub(super) fn set_inlays(
+        &mut self,
+        key: &gpui::SharedString,
+        range: Option<Range<usize>>,
+        inlays: Vec<super::Inlay>,
+        cx: &mut App,
+    ) -> bool {
+        self.wrapper.set_inlays(key, range, inlays, cx)
     }
 
     /// Get access to the underlying wrapper (for rendering/hit-testing)

@@ -99,6 +99,9 @@ gpui-cn = { path = "vendor/gpui-cn" }
 # input/base/state.rs patched: Search and Replace handlers only on a searchable input, so the
 # menu bar's Find items are grey in a plain field.
 gpui-base = { path = "vendor/gpui-base" }
+# wayland/window.rs patched: the first commit waits for maximize/fullscreen, so a
+# window opened maximized is placed by the compositor and restores to that place.
+gpui-fast-linux = { path = "vendor/gpui-fast-linux" }
 # platform.rs patched: set_menus listed every item's action again on each call and never
 # dropped the old ones; an action already listed now keeps its tag. set_menu_hooks: the app
 # tells each item's state, title and check mark when its menu opens (menuNeedsUpdate,

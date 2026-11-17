@@ -117,6 +117,12 @@ pub struct Settings {
     /// reformatted when saved by hand.
     pub complete_as_typed: bool,
     pub semantic_colors: bool,
+    /// The language server's hints in the code: types after names,
+    /// parameter names before arguments.
+    pub inlay_hints: bool,
+    /// Who last changed the cursor's line is told at the end of that line;
+    /// off, in the file's header.
+    pub blame_at_line_end: bool,
     pub format_on_save: bool,
     /// The worktrees agents make for themselves are listed, folded under
     /// the task they came from.
@@ -191,6 +197,8 @@ impl Default for Settings {
             context_on_tab: true,
             complete_as_typed: true,
             semantic_colors: true,
+            inlay_hints: true,
+            blame_at_line_end: true,
             format_on_save: false,
             diff_unified: false,
             diff_ignore_whitespace: false,

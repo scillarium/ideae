@@ -10,6 +10,8 @@ mod completions;
 mod definitions;
 mod document_colors;
 mod hover;
+// ideae patch: the server's inlay hints.
+mod inlay_hints;
 mod overlay;
 mod semantic_tokens;
 
@@ -18,6 +20,7 @@ pub use completions::*;
 pub use definitions::*;
 pub use document_colors::*;
 pub use hover::*;
+pub use inlay_hints::{INLAY_HINTS_KEY, InlayHintsProvider};
 pub use overlay::*;
 pub use semantic_tokens::*;
 
@@ -49,6 +52,8 @@ pub struct Lsp {
     pub document_color_provider: Option<Rc<dyn DocumentColorProvider>>,
     /// The range semantic tokens provider.
     pub semantic_tokens_provider: Option<Rc<dyn DocumentRangeSemanticTokensProvider>>,
+    /// ideae patch: the inlay hints provider.
+    pub inlay_hints_provider: Option<Rc<dyn InlayHintsProvider>>,
     /// Optional host hook to show documents for Go to Definition locations,
     /// following the `window/showDocument` request (see [`ShowDocumentHandler`]).
     ///
@@ -73,6 +78,8 @@ pub struct Lsp {
     pub(crate) _definition_task: Task<Result<()>>,
     pub(crate) _document_color_task: Task<()>,
     pub(crate) _semantic_tokens_task: Task<()>,
+    pub(crate) inlay_hints_asked: Option<inlay_hints::HintsAsked>,
+    pub(crate) _inlay_hints_task: Task<()>,
 }
 
 impl Default for Lsp {
@@ -86,6 +93,9 @@ impl Default for Lsp {
             completion_menu: CompletionMenuOptions::default(),
             completion_highlighter: Rc::new(highlight_prefix),
             semantic_tokens_provider: None,
+            inlay_hints_provider: None,
+            inlay_hints_asked: None,
+            _inlay_hints_task: Task::ready(()),
             show_document: None,
             document_colors: vec![],
             semantic_tokens: vec![],
@@ -135,6 +145,8 @@ impl Lsp {
         self._definition_task = Task::ready(Ok(()));
         self._document_color_task = Task::ready(());
         self._semantic_tokens_task = Task::ready(());
+        self.inlay_hints_asked = None;
+        self._inlay_hints_task = Task::ready(());
     }
 }
 
