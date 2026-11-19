@@ -122,7 +122,7 @@ pub struct BinaryView {
 
 impl Render for BinaryView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let path = self.path.clone();
+        let (path, reveal) = (self.path.clone(), self.path.clone());
         if self.image {
             return v_flex()
                 .size_full()
@@ -139,7 +139,8 @@ impl Render for BinaryView {
                         .gap_3()
                         .items_center()
                         .child(div().text_sm().text_color(cx.theme().muted_foreground).child(self.reason.clone()))
-                        .child(Button::new("open-system").xsmall().ghost().label("Open in the system app").on_click(move |_, _, cx| cx.open_with_system(&path))),
+                        .child(Button::new("open-system").xsmall().ghost().label("Open in the system app").on_click(move |_, _, cx| cx.open_with_system(&path)))
+                        .child(Button::new("reveal").xsmall().ghost().label("Reveal in file manager").on_click(move |_, _, cx| file_tree::reveal(reveal.clone(), false, cx))),
                 );
         }
         v_flex()
@@ -152,11 +153,10 @@ impl Render for BinaryView {
             ))
             .child(div().text_sm().text_color(cx.theme().muted_foreground).child(self.reason.clone()))
             .child(
-                Button::new("open-system")
-                    .small()
-                    .outline()
-                    .label("Open in the system app")
-                    .on_click(move |_, _, cx| cx.open_with_system(&path)),
+                h_flex()
+                    .gap_2()
+                    .child(Button::new("open-system").small().outline().label("Open in the system app").on_click(move |_, _, cx| cx.open_with_system(&path)))
+                    .child(Button::new("reveal").small().outline().label("Reveal in file manager").on_click(move |_, _, cx| file_tree::reveal(reveal.clone(), false, cx))),
             )
     }
 }
