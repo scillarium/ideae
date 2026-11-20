@@ -475,7 +475,8 @@ pub fn project_root(program: &str, file: &Path, limit: &Path) -> PathBuf {
 /// is read as `phpunit.xml`, `.env.example` as `.env`.
 pub fn template_of(name: &str) -> &str {
     for suffix in [".dist", ".example", ".sample", ".template", ".orig", ".bak"] {
-        if name.len() > suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix) {
+        // `get`: the end of a name not in ASCII may not be a whole character.
+        if name.len() > suffix.len() && name.get(name.len() - suffix.len()..).is_some_and(|end| end.eq_ignore_ascii_case(suffix)) {
             return &name[..name.len() - suffix.len()];
         }
     }
@@ -2372,6 +2373,10 @@ mod language_tests {
         assert_eq!(of("main.tf"), "hcl");
         assert_eq!(super::extension_of(Path::new("/a/phpunit.xml.dist")), "xml");
         assert_eq!(super::extension_of(Path::new("/a/Makefile")), "");
+        // A name whose end is not a whole character there.
+        assert_eq!(super::template_of("Отчёт для клиента"), "Отчёт для клиента");
+        assert_eq!(of("примечание.md"), "markdown");
+        assert_eq!(of("настройки.json.example"), "json");
     }
 }
 
