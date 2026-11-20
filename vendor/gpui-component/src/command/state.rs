@@ -250,6 +250,12 @@ impl CommandState {
         self.on_query_changed(window, cx);
     }
 
+    /// ideae patch: selects the whole query, so that typing replaces a query
+    /// put in for the user (the text selected where a search was opened from).
+    pub fn select_query(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.query_input.update(cx, |input, cx| input.select_all(window, cx));
+    }
+
     /// The highlighted item's path in the model installed by the latest
     /// [`crate::command::Command`] render, before local filtering.
     ///

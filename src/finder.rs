@@ -210,7 +210,10 @@ impl Finder {
     ) {
         let command = cx.new(|cx| CommandState::new(window, cx));
         if !query.is_empty() {
-            command.update(cx, |c, cx| c.set_query(query.clone(), window, cx));
+            command.update(cx, |c, cx| {
+                c.set_query(query.clone(), window, cx);
+                c.select_query(window, cx);
+            });
         }
         let finder = cx.new(|_| Finder {
             kind,

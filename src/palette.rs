@@ -585,6 +585,37 @@ mod tests {
         assert_eq!(row_after(&["pageup"; 30], cx), 0, "no wrapping past the start");
     }
 
+    /// A query put in for the user is selected: what is typed replaces it.
+    #[gpui_kit::test]
+    fn a_query_put_in_is_replaced_by_typing(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut command = None;
+        let handle: AnyWindowHandle = cx.update(|cx| {
+            let bounds = Bounds { origin: Point::default(), size: size(px(800.), px(600.)) };
+            let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+            gpui_kit::open_window(options, cx, |window, cx| {
+                let state = cx.new(|cx| CommandState::new(window, cx));
+                state.update(cx, |c, cx| {
+                    c.set_query("needle", window, cx);
+                    c.select_query(window, cx);
+                });
+                command = Some(state.clone());
+                cx.new(|_| Host(state, Rc::default()))
+            })
+            .expect("a test window")
+            .0
+        });
+        let command = command.unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            command.update(cx, |state, cx| state.focus(window, cx));
+            window.press("x", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| assert_eq!(command.read(cx).query(cx).as_ref(), "x"));
+    }
+
     /// Archived tasks are not in the list until something is typed, and
     /// then come after the tasks there are, however well they match.
     #[gpui_kit::test]
