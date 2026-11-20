@@ -1109,6 +1109,10 @@ impl TaskView {
             let symbols = symbol_source(self.root.clone(), self.lsp.clients(), files);
             return crate::finder::Finder::open_symbols(self.root.clone(), symbols, cx.weak_entity(), window, cx);
         }
+        if kind == crate::finder::FinderKind::Grep {
+            let query = self.selected_words(cx);
+            return crate::finder::Finder::open_grep(self.root.clone(), files, query, cx.weak_entity(), window, cx);
+        }
         crate::finder::Finder::open(kind, self.root.clone(), files, cx.weak_entity(), window, cx);
     }
 
@@ -1937,6 +1941,19 @@ impl TaskView {
         let shown = Rc::new(shown);
         *self.structure_shown.borrow_mut() = Some((made_of, shown.clone()));
         shown
+    }
+
+    /// What is selected in the file the keyboard is in, when it is a few
+    /// words on one line: what a search started from there looks for.
+    fn selected_words(&self, cx: &App) -> String {
+        let Some(TabKind::File(file)) = self.focused_ix().map(|ix| &self.tabs[ix].kind) else { return String::new() };
+        let editor = file.read(cx).editor.read(cx);
+        let range = editor.selected_range();
+        if range.is_empty() || range.len() > 200 {
+            return String::new();
+        }
+        let text = editor.selected_text().to_string();
+        if text.contains('\n') { String::new() } else { text }
     }
 
     /// The file whose structure is to show: the one in front where the

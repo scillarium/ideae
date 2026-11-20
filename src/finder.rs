@@ -125,6 +125,12 @@ impl Finder {
         Self::open_with(kind, root, files, Vec::new(), task, window, cx)
     }
 
+    /// Find in files with `query` searched for at once: the text selected
+    /// where it was asked from.
+    pub fn open_grep(root: PathBuf, files: Arc<Vec<String>>, query: String, task: WeakEntity<TaskView>, window: &mut Window, cx: &mut App) {
+        Self::open_inner(FinderKind::Grep, root, files, Vec::new(), Vec::new(), String::new(), None, query, task, window, cx)
+    }
+
     /// A fixed list of places to choose from (several definitions of a name).
     pub fn open_hits(root: PathBuf, hits: Vec<Hit>, task: WeakEntity<TaskView>, window: &mut Window, cx: &mut App) {
         Self::open_with(FinderKind::Outline, root, Arc::default(), hits, task, window, cx)
@@ -141,7 +147,7 @@ impl Finder {
         cx: &mut App,
     ) {
         let sections = sections.into_iter().filter(|(_, hits)| !hits.is_empty()).collect();
-        Self::open_inner(FinderKind::Places, root, Arc::default(), Vec::new(), sections, title, None, task, window, cx)
+        Self::open_inner(FinderKind::Places, root, Arc::default(), Vec::new(), sections, title, None, String::new(), task, window, cx)
     }
 
     /// The outline of `path`, from items already extracted.
@@ -166,14 +172,14 @@ impl Finder {
 
     /// Go to a class, a function, a type anywhere in the project.
     pub fn open_symbols(root: PathBuf, symbols: SymbolSource, task: WeakEntity<TaskView>, window: &mut Window, cx: &mut App) {
-        Self::open_inner(FinderKind::Symbols, root, Arc::default(), Vec::new(), Vec::new(), String::new(), Some(symbols), task, window, cx)
+        Self::open_inner(FinderKind::Symbols, root, Arc::default(), Vec::new(), Vec::new(), String::new(), Some(symbols), String::new(), task, window, cx)
     }
 
     /// One of `items` to choose, each a name with `DETAIL` and what it is;
     /// `picked` gets the `path` of the one chosen.
     pub fn open_pick(title: String, root: PathBuf, items: Vec<Hit>, picked: Picked, task: WeakEntity<TaskView>, window: &mut Window, cx: &mut App) {
         PICK.with(|pick| *pick.borrow_mut() = Some((title, picked)));
-        Self::open_inner(FinderKind::Pick, root, Arc::default(), items, Vec::new(), String::new(), None, task, window, cx)
+        Self::open_inner(FinderKind::Pick, root, Arc::default(), items, Vec::new(), String::new(), None, String::new(), task, window, cx)
     }
 
     fn open_with(
@@ -185,7 +191,7 @@ impl Finder {
         window: &mut Window,
         cx: &mut App,
     ) {
-        Self::open_inner(kind, root, files, outline, Vec::new(), String::new(), None, task, window, cx)
+        Self::open_inner(kind, root, files, outline, Vec::new(), String::new(), None, String::new(), task, window, cx)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -197,11 +203,15 @@ impl Finder {
         sections: Vec<(String, Vec<Hit>)>,
         title: String,
         symbols: Option<SymbolSource>,
+        query: String,
         task: WeakEntity<TaskView>,
         window: &mut Window,
         cx: &mut App,
     ) {
         let command = cx.new(|cx| CommandState::new(window, cx));
+        if !query.is_empty() {
+            command.update(cx, |c, cx| c.set_query(query.clone(), window, cx));
+        }
         let finder = cx.new(|_| Finder {
             kind,
             outline: Arc::new(outline),
@@ -242,7 +252,7 @@ impl Finder {
             .detach();
             finder.update(cx, |f, _| f.mask = Some(mask));
         }
-        finder.update(cx, |f, cx| f.query("", cx));
+        finder.update(cx, |f, cx| f.query(&query, cx));
 
         let focused = Rc::new(std::cell::Cell::new(false));
         window.open_dialog(cx, move |dialog, _, _| {
