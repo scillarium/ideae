@@ -129,7 +129,9 @@ fn clean_title(title: &str) -> String {
 impl Workspace {
     pub fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let query = self.search.read(cx).value().trim().to_lowercase();
-        let mut list = v_flex().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().pb_2();
+        // As high as its rows, inside what scrolls: a column held to the
+        // panel's height would squeeze a row that clips (a truncated line) to nothing.
+        let mut list = v_flex().id("sidebar-rows").min_h_full().pb_2();
 
         // Read once: Needs you lists them, Starred leaves them out.
         let active = if query.is_empty() { self.active_rows(cx) } else { Vec::new() };
@@ -305,7 +307,7 @@ impl Workspace {
                         )
                     }),
             )
-            .child(list)
+            .child(div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().child(list))
     }
 
     /// Folds the projects whose tasks are all paused and unfolds the others;
@@ -1082,6 +1084,7 @@ impl Workspace {
         list = list.child(
             div()
                 .id(SharedString::from(format!("sides-{}", key.display())))
+                .test_support()
                 .pl(px(26.))
                 .pr_3()
                 .py_0p5()
@@ -1459,7 +1462,7 @@ impl Workspace {
                 gpui_kit::component::tooltip::Tooltip::element(move |_, _| div().max_w(px(420.)).child(told.clone())).build(window, cx)
             });
         }
-        row.context_menu(menu).into_any_element()
+        row.test_support().context_menu(menu).into_any_element()
     }
 }
 
@@ -1474,6 +1477,58 @@ mod tests {
         assert!(!branch_follows("Fix login", "DEV-123_fixLogin"), "named by hand, or from an issue");
         assert!(!branch_follows("Сборка приложения", "main"));
         assert!(!branch_follows("", "anything"));
+    }
+
+    /// More tasks than the window is high: each row keeps its height and
+    /// the list scrolls, where a flex column would squeeze them into it.
+    #[gpui_kit::test]
+    fn many_tasks_scroll_and_are_not_squeezed(cx: &mut gpui_kit::TestAppContext) {
+        use crate::state::{ProjectState, State, TaskState};
+        use crate::workspace::Workspace;
+        use gpui_kit::test::TestWindowExt as _;
+        use gpui_kit::{AppContext as _, Bounds, Point, WindowBounds, WindowOptions, px, size};
+        let _one = crate::workspace::variants::tests::ONE_WINDOW.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("ideae-many-tasks-test-{}", std::process::id()));
+        // SAFETY: set before anything of the app reads them, one window at a time.
+        unsafe {
+            std::env::set_var("IDEAE_STATE", dir.join("state.json"));
+            std::env::set_var("IDEAE_NO_DAEMON", "1");
+        }
+        let tasks = (0..40)
+            .map(|i| TaskState { path: dir.join(format!("t{i}")), branch: format!("t{i}"), title: format!("Task {i}"), ..Default::default() })
+            .collect();
+        let saved = State { projects: vec![ProjectState { path: dir.join("repo"), tasks, ..Default::default() }], ..Default::default() };
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("state.json"), serde_json::to_string(&saved).unwrap()).unwrap();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            gpui_cn::init(cx);
+            crate::theme::init(cx);
+        });
+        let (handle, workspace) = cx.update(|cx| {
+            let bounds = Bounds { origin: Point::default(), size: size(px(1000.), px(400.)) };
+            let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+            gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Workspace::new(Vec::new(), Some(None), None, window, cx))).expect("a test window")
+        });
+        // The agents' own worktrees, folded at the end: a line that truncates.
+        let repo = dir.join("repo");
+        workspace.update(cx, |w, _| {
+            for t in &mut w.projects[0].tasks[35..] {
+                t.side = Some(crate::workspace::side::Side { parent: None, ahead: 0, dirty: false, about: None });
+            }
+        });
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            let sides = window.find(gpui_kit::SharedString::from(format!("sides-{}", repo.display()))).bounds();
+            assert!(sides.size.height >= px(16.), "the folded worktrees' line as high as its text: {:?}", sides.size.height);
+            let row = |i: usize| window.find(gpui_kit::SharedString::from(format!("task-{}", dir.join(format!("t{i}")).display()))).bounds();
+            let (first, last) = (row(0), row(34));
+            assert!(first.size.height >= px(20.), "a row as high as its line: {:?}", first.size.height);
+            assert_eq!(first.size.height, last.size.height, "the last row as high as the first");
+            assert!(last.origin.y > px(400.), "the last row below the window, to scroll to: {:?}", last.origin.y);
+        })
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
