@@ -359,7 +359,7 @@ fn pages(
             SettingGroup::new().title("Updates").item(switch(
                 draft,
                 "Check for updates",
-                "From time to time the app checks GitHub for a newer release. Release builds only.",
+                "From time to time the app checks GitHub for a newer release; a build of a checkout, for new commits of its main branch, which one click pulls and builds.",
                 |s| s.check_updates,
                 |s, v| s.check_updates = v,
             )),

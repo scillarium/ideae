@@ -272,6 +272,10 @@ pub struct Workspace {
     /// being installed.
     pub update: Option<crate::update::Release>,
     pub updating: bool,
+    /// A build of a checkout: the commits of its main branch it lacks, and
+    /// whether they are being pulled and built.
+    pub behind: Option<crate::update::Behind>,
+    pub rebuilding: bool,
     /// Quitting while the agents go on: a restart, or the window's ×.
     keep_terminals: bool,
     /// What each task changed since its fork, by worktree path: tasks of
@@ -593,9 +597,10 @@ impl Workspace {
                     if n == 1 {
                         this.welcome_agents(window, cx);
                     }
-                    // Every six hours, the first time soon after start.
-                    if n % 7200 == 3 {
-                        this.check_update(window, cx);
+                    // Every six hours, the first time soon after start; a
+                    // checkout's fetch is cheap, so every hour.
+                    if n % 7200 == 3 || (n % 1200 == 3 && crate::update::source().is_some()) {
+                        this.check_update(false, window, cx);
                     }
                     // Saving power, what only reads the local repositories
                     // runs every five minutes, not every half: the list
@@ -741,6 +746,8 @@ impl Workspace {
             window_place: saved.window.clone(),
             update: None,
             updating: false,
+            behind: None,
+            rebuilding: false,
             keep_terminals: false,
             touched: Default::default(),
             shared: Default::default(),
@@ -2886,14 +2893,76 @@ impl Workspace {
         });
     }
 
-    fn check_update(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !crate::update::enabled() || !state::settings().check_updates {
+    /// A newer release, or new commits for the checkout this was built
+    /// from. `asked`: from the menu, so the answer is told either way.
+    pub fn check_update(&mut self, asked: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !asked && (!state::settings().check_updates || crate::lsp::POWER_SAVING.load(std::sync::atomic::Ordering::Relaxed)) {
             return;
         }
+        let tell = move |window: &mut Window, cx: &mut App, said: String, error: bool| {
+            if asked {
+                let n = if error { Notification::error(said) } else { Notification::info(said) };
+                window.push_notification(n.title("Updates"), cx);
+            }
+        };
+        if crate::update::enabled() {
+            cx.spawn_in(window, async move |this, cx| {
+                let found = cx.background_spawn(crate::procs::on_thread(crate::update::newer)).await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    if found.is_none() {
+                        tell(window, cx, format!("{} is the latest release.", crate::build_watch::version()), false);
+                    }
+                    this.update = found;
+                    cx.notify();
+                });
+            })
+            .detach();
+        } else if let Some(dir) = crate::update::source() {
+            cx.spawn_in(window, async move |this, cx| {
+                let found = cx.background_spawn(crate::procs::on_thread(move || crate::update::behind(&dir))).await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    match &found {
+                        Ok(None) => tell(window, cx, format!("This build has all of main ({}).", crate::build_watch::version()), false),
+                        Ok(Some(b)) => tell(window, cx, format!("{} new commits on {}: ↓ in the title bar pulls and builds them.", b.commits, b.base), false),
+                        Err(e) => tell(window, cx, e.clone(), true),
+                    }
+                    if let Ok(behind) = found {
+                        this.behind = behind;
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        } else {
+            tell(
+                window,
+                cx,
+                "This build updates neither from a release nor from a checkout: the folder it was built in is gone, or it is a debug build.".into(),
+                false,
+            );
+        }
+    }
+
+    /// Pulls the new commits into the checkout and builds them over this
+    /// binary: the new-build notice then offers the restart.
+    pub fn rebuild_from_source(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(dir) = crate::update::source() else { return };
+        if self.rebuilding {
+            return;
+        }
+        self.rebuilding = true;
+        cx.notify();
         cx.spawn_in(window, async move |this, cx| {
-            let found = cx.background_spawn(crate::procs::on_thread(move || { crate::update::newer() })).await;
-            let _ = this.update(cx, |this, cx| {
-                this.update = found;
+            let result = cx.background_spawn(crate::procs::on_thread(move || crate::update::rebuild(&dir))).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.rebuilding = false;
+                match result {
+                    Ok(()) => {
+                        this.behind = None;
+                        window.push_notification(Notification::info("Built. ↻ new build in the title bar restarts into it.").title("Update"), cx);
+                    }
+                    Err(e) => window.push_notification(Notification::error(e).title("Update"), cx),
+                }
                 cx.notify();
             });
         })

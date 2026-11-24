@@ -168,6 +168,7 @@ impl Render for Workspace {
                                     )
                                 })
                                 .children(self.render_update(cx).filter(|_| !presenting))
+                                .children(self.render_behind(cx).filter(|_| !presenting))
                                 .children(self.render_new_build(cx).filter(|_| !presenting))
                                 .child(self.render_power_saving(cx))
                                 .when(has_task, |bar| bar.child(
@@ -431,6 +432,29 @@ impl Workspace {
                     release.size / (1 << 20)
                 ))
                 .on_click(cx.listener(|this, _, window, cx| this.install_update(window, cx))),
+        )
+    }
+
+    /// The checkout this was built from lacks commits of its main branch:
+    /// one click pulls and builds them.
+    fn render_behind(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let behind = self.behind.as_ref()?;
+        let branch = behind.base.split_once('/').map_or(behind.base.as_str(), |(_, b)| b);
+        let label = if self.rebuilding { "↓ building…".to_string() } else { format!("↓ {branch} +{}", behind.commits) };
+        Some(
+            Button::new("rebuild")
+                .xsmall()
+                .ghost()
+                .disabled(self.rebuilding)
+                .label(label)
+                .text_color(cx.theme().primary)
+                .tooltip(format!(
+                    "{} new commit{} on {}. Click to pull them and build (cargo build --release, a few minutes); ↻ new build then restarts into it.",
+                    behind.commits,
+                    if behind.commits == 1 { "" } else { "s" },
+                    behind.base
+                ))
+                .on_click(cx.listener(|this, _, window, cx| this.rebuild_from_source(window, cx))),
         )
     }
 

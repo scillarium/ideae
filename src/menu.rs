@@ -167,7 +167,7 @@ impl Workspace {
 actions!(
     ideae,
     [
-        FindAndReplace, AddProject, PresentationMode, PowerSaving, Restart, KeyboardShortcuts, About, BringAllToFront, CloseWindow, Documentation, Hide, HideOthers, ShowAll,
+        FindAndReplace, AddProject, PresentationMode, PowerSaving, Restart, CheckForUpdates, KeyboardShortcuts, About, BringAllToFront, CloseWindow, Documentation, Hide, HideOthers, ShowAll,
         Minimize, ZoomWindow, FullScreen, ResetTextSize, PinToDash, ListApp, OpenMenuBar
     ]
 );
@@ -202,6 +202,7 @@ pub fn init(cx: &mut App) {
         })
     });
     cx.on_action(|_: &Restart, cx| in_window(cx, |w, window, cx| w.restart(window, cx)));
+    cx.on_action(|_: &CheckForUpdates, cx| in_window(cx, |w, window, cx| w.check_update(true, window, cx)));
     cx.on_action(|_: &Minimize, cx| in_window(cx, |_, window, _| window.minimize_window()));
     cx.on_action(|_: &ZoomWindow, cx| in_window(cx, |_, window, _| window.zoom_window()));
     cx.on_action(|_: &About, cx| {
@@ -823,12 +824,13 @@ fn menus(shown: Shown) -> Vec<Menu> {
             window.push(sep());
             window.extend(desk);
         }
-        help.extend([sep(), act(format!("About {app}"), About)]);
+        help.extend([sep(), act("Check for Updates…", CheckForUpdates), act(format!("About {app}"), About)]);
     }
     let mut menus = Vec::new();
     if mac {
         menus.push(Menu::new(app).items([
             act(format!("About {app}"), About),
+            act("Check for Updates…", CheckForUpdates),
             sep(),
             when(true, key("Settings…", "settings")),
             sep(),
