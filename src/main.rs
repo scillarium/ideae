@@ -475,7 +475,8 @@ impl Workspace {
             Button::new("new-build")
                 .xsmall()
                 .ghost()
-                .label(format!("↻ new build {}", build_watch::clock(new.built)))
+                .label(if self.restarting { "↻ restarting…".to_string() } else { format!("↻ new build {}", build_watch::clock(new.built)) })
+                .disabled(self.restarting)
                 .text_color(cx.theme().primary)
                 .tooltip(tip)
                 .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),

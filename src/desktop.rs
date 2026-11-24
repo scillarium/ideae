@@ -339,19 +339,39 @@ pub fn refresh_entry() {
     }
 }
 
-/// Starts a new instance with the same arguments; the caller quits.
+/// Starts a new instance with the same arguments; the caller quits. It
+/// waits a little: off the UI thread.
 pub fn spawn_again() -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     if let Some(app) = linked_bundle() {
+        let front = front_app();
         let mut open = crate::procs::command("open");
         open.arg("-n");
         // Launch Services starts the app with its own environment, not ours.
         for (name, value) in std::env::vars().filter(|(name, _)| name.starts_with("IDEAE_")) {
             open.arg("--env").arg(format!("{name}={value}"));
         }
-        return open.arg(app).arg("--args").args(std::env::args_os().skip(1)).spawn().map(|_| ());
+        let status = open.arg(app).arg("--args").args(std::env::args_os().skip(1)).status()?;
+        if !status.success() {
+            return Err(std::io::Error::other(format!("open could not start the app ({status})")));
+        }
+        // This instance gone before the new one is in front, macOS gives the
+        // front to another app, and the new window then may not take it.
+        let began = std::time::Instant::now();
+        while front.is_some() && front_app() == front && began.elapsed() < std::time::Duration::from_secs(3) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        return Ok(());
     }
     crate::procs::command(exe()?).args(std::env::args_os().skip(1)).spawn().map(|_| ())
+}
+
+/// The app in front, as Launch Services names it (`ASN:0x0-0x98d98d:`).
+#[cfg(target_os = "macos")]
+fn front_app() -> Option<String> {
+    let out = crate::procs::command("lsappinfo").arg("front").output().ok()?;
+    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!name.is_empty()).then_some(name)
 }
 
 /// The .app this process was opened from when its binary is a symlink out

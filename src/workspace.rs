@@ -291,6 +291,8 @@ pub struct Workspace {
     pub rebuilding: bool,
     /// Quitting while the agents go on: a restart, or the window's ×.
     keep_terminals: bool,
+    /// A restart under way: a second click starts no second instance.
+    pub restarting: bool,
     /// What each task changed since its fork, by worktree path: tasks of
     /// a project that touch the same files are marked before they clash.
     pub touched: std::collections::HashMap<PathBuf, std::collections::BTreeSet<String>>,
@@ -764,6 +766,7 @@ impl Workspace {
             open_task_tx,
             window_place: saved.window.clone(),
             update: None,
+            restarting: false,
             updating: false,
             behind: None,
             rebuilding: false,
@@ -3132,15 +3135,26 @@ impl Workspace {
     }
 
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.restarting {
+            return;
+        }
+        self.restarting = true;
+        cx.notify();
         self.save(cx);
         self.keep_terminals = true;
-        match crate::desktop::spawn_again() {
-            Ok(()) => cx.quit(),
-            Err(e) => {
-                self.keep_terminals = false;
-                window.push_notification(Notification::error(e.to_string()).title("Restart"), cx)
-            }
-        }
+        cx.spawn_in(window, async move |this, cx| {
+            let started = cx.background_spawn(crate::procs::on_thread(crate::desktop::spawn_again)).await;
+            let _ = this.update_in(cx, |this, window, cx| match started {
+                Ok(()) => cx.quit(),
+                Err(e) => {
+                    this.keep_terminals = false;
+                    this.restarting = false;
+                    cx.notify();
+                    window.push_notification(Notification::error(e.to_string()).title("Restart"), cx)
+                }
+            });
+        })
+        .detach();
     }
 
     /// Draws with a theme at once, and keeps it as the one set for the side
