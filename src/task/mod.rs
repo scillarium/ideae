@@ -51,6 +51,7 @@ mod file;
 mod preview;
 mod sql;
 mod sql_dialog;
+mod sql_guard;
 mod sql_grid;
 mod sql_schema;
 pub(crate) use preview::{ink, rasterize as rasterize_svg};
@@ -58,6 +59,7 @@ mod changes;
 mod session;
 mod change_tree;
 mod services;
+mod db_panel;
 mod auto;
 mod pr;
 mod replace;
@@ -81,6 +83,8 @@ pub use annotate::ToggleBlame;
 pub use preview::{CycleLook, PREVIEW_CONTEXT};
 pub use sql::{RunFile, RunStatement, SQL_INPUT_CONTEXT, SqlDefinition, StopStatement};
 pub use sql_dialog::{bastion_dialog, connection_dialog, import_dialog};
+pub use sql_guard::{lock_now, production_gate};
+pub use db_panel::{forget_in_panel, reload_locked};
 pub use git_ui::GitCommand;
 pub use bookmarks::{NextBookmark, PrevBookmark, ShowBookmarks, ToggleBookmark};
 use change_tree::*;
@@ -117,7 +121,7 @@ pub struct TabsState {
     pub front: Option<FrontTab>,
     /// The side panels in view, by their place in the order of their keys:
     /// none in focus mode, or of a narrow window's hidden side.
-    pub panels: [bool; 4],
+    pub panels: [bool; 5],
 }
 
 /// The tabs the menu bar names, when one is in front.
@@ -301,6 +305,8 @@ pub(crate) enum RightPane {
     Structure,
     /// The task's services (`.ideae.toml`): start, stop, open.
     Run,
+    /// The connections, their databases and tables.
+    Database,
 }
 
 const NAV_LIMIT: usize = 100;
@@ -1972,7 +1978,7 @@ impl TaskView {
     /// The panel comes up and the keyboard stays where it is.
     pub fn reveal_side_panel(&mut self, which: usize, cx: &mut Context<Self>) {
         self.side_over = true;
-        self.keyed = strip::PANES[which.min(3)];
+        self.keyed = strip::PANES[which.min(strip::PANES.len() - 1)];
         self.open_panel(self.keyed, cx);
         self.side_selected = match self.keyed {
             // Start on the declaration the cursor is in.
@@ -1987,7 +1993,7 @@ impl TaskView {
         let len = match self.keyed {
             RightPane::Changes => self.files.len(),
             RightPane::Structure => self.structure_items(cx).len(),
-            RightPane::Files | RightPane::Run => return,
+            RightPane::Files | RightPane::Run | RightPane::Database => return,
         };
         match event.keystroke.key.as_str() {
             "down" if len > 0 => self.side_selected = (self.side_selected + 1).min(len - 1),

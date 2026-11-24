@@ -17,7 +17,9 @@ the text, as wide as the file. `Shift+Esc` gives the file the whole window.
   runs as written.
 
 The editor completes tables, columns (by alias too), functions and keywords, and
-after `JOIN` offers the whole condition from the foreign keys.
+after `JOIN` offers the whole condition from the foreign keys. A file with a database
+chosen that has not connected yet reads the schema when you start typing: as kept from
+before, else from the server.
 
 Under the text: **Output** (what ran, how long, what failed), **Schema** (tables
 and columns, their data and definition), **History**, and a tab for each result.
@@ -55,6 +57,17 @@ Tx: Manual keeps nothing until Commit. Closing a file asks first when a transact
 is open or changes wait. A connection that dropped while idle is made again before
 the next statement; with a transaction open, that statement is not sent.
 
+## Database panel
+
+The Database panel (Alt+5) lists the connections, development ones apart from
+production ones; the production heading says whether they are locked, and a click on
+it locks or unlocks them. One opened lists its databases, a
+database opened its tables and views, each read on opening on a connection of its
+own; tables already read for a file's completions come from there. Refresh reads the
+open ones again. A double click on a connection or a database opens a console, a
+scratch file on it; on a table, one with a `SELECT` of its first 100 rows. Its title
+has New connection and Import from DataGrip.
+
 ## Connections
 
 Settings, Databases, or the connection's menu in a file. They are kept in
@@ -62,7 +75,25 @@ Settings, Databases, or the connection's menu in a file. They are kept in
 project. Passwords are in the system's keyring, under `ideae: <connection>`: out of files,
 backups and git, but any program of your user can ask for them while you are logged
 in. Import from DataGrip brings data sources and their SSH settings, not their
-passwords.
+passwords: DataGrip's own, and those added to a project in any JetBrains IDE (its
+`.idea`), for the projects the IDEs opened lately and ideae's. **Look in a folder…**
+adds the projects in a folder and under it, for older ones.
+
+## Production
+
+A connection's profile is **Development** or **Production**. Production is a safety
+catch: nothing runs on such a connection until production is unlocked, which asks
+first. Unlocked, every production connection runs for 10 minutes (5, 10, 15 or 30, in
+Settings, Databases), then they lock again by themselves; the title bar says until
+when, and a click locks at once; time asleep counts. Unlocking takes a click on the
+button, not Enter. A statement, a Commit, saved cells, an export or an import sent after
+that is refused by the session itself, which stays connected with its transaction, and
+asks again. A locked production file connects only when something runs. A production connection is changed, or made a development one,
+only while unlocked.
+
+It keeps a statement from going to production by mistake, yours or of a file left
+open; an agent has no way to run a statement through the app or to answer the
+question. It is no secret: the connection's password is in the keyring like any other.
 
 A connection is direct, or goes through a **bastion**, set up once and chosen for
 as many connections as go through it. A bastion is reached with your own `ssh`: its

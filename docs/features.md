@@ -317,8 +317,8 @@ all: what is removed stays under `refs/ideae/variants` for two weeks.
 ## The side
 
 A strip at the window's right edge has a mark for each panel: Changes,
-Files, Structure, Run (Alt+1 to 4). A click shows or hides a panel. The
-side has two halves, a panel in each: Changes and Files are of the upper
+Files, Structure, Run, Database (Alt+1 to 5). A click shows or hides a panel. The
+side has two halves, a panel in each: Changes, Files and Database are of the upper
 one, Structure and Run of the lower, and a mark dragged to the other end of
 the strip moves its panel there. With nothing shown the strip is all there
 is of the side, and the pointer resting on a mark brings its panel over the

@@ -170,6 +170,15 @@ impl Render for Workspace {
                                 })
                                 .children(self.render_update(cx).filter(|_| !presenting))
                                 .children(self.render_behind(cx).filter(|_| !presenting))
+                                .children(crate::db::guard::open_until().map(|until| {
+                                    Button::new("production-unlocked")
+                                        .xsmall()
+                                        .ghost()
+                                        .label(format!("PRODUCTION unlocked until {}", crate::local_time::hour_minute(until)))
+                                        .text_color(gpui_kit::red())
+                                        .tooltip("Statements run on production connections until then. Click to lock now")
+                                        .on_click(|_, _, cx| crate::task::lock_now(cx))
+                                }))
                                 .children(self.render_new_build(cx).filter(|_| !presenting))
                                 .child(self.render_power_saving(cx))
                                 .when(has_task, |bar| bar.child(

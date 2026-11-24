@@ -84,6 +84,12 @@ pub fn day_and_hour(secs: u64, now: u64) -> String {
     format!("{}, {:02}:{:02}", day(secs, now), tm.tm_hour, tm.tm_min)
 }
 
+/// "09:05", of a moment on the clock, in this machine's time on every system.
+pub fn hour_minute(time: std::time::SystemTime) -> String {
+    let tm = tm_of(time.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()));
+    format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+}
+
 /// "09:05:12".
 pub fn clock(secs: u64) -> String {
     let tm = tm_of(secs);

@@ -241,6 +241,10 @@ pub(super) struct SqlFile {
     _pick: Task<()>,
     _events: Task<()>,
     _export: Task<()>,
+    /// The schema asked for before the file connected, once for a database.
+    /// With whether production was locked then: asked again once it is not.
+    schema_asked: Option<(String, String, bool)>,
+    _schema: Task<()>,
 }
 
 impl SqlFile {
@@ -301,6 +305,8 @@ impl SqlFile {
             _pick: Task::ready(()),
             _events: Task::ready(()),
             _export: Task::ready(()),
+            schema_asked: None,
+            _schema: Task::ready(()),
         }
     }
 
@@ -1101,7 +1107,43 @@ impl FileView {
         self.run_text(text, window, cx);
     }
 
+    /// This file's connection is production and locked: asks, and runs
+    /// `again` once it is unlocked. False when there is nothing to ask.
+    fn production_asks(&self, again: impl Fn(&mut FileView, &mut Window, &mut Context<FileView>) + 'static, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let locked = self.sql.as_ref().and_then(|s| s.connection.as_deref()).and_then(config::find).is_some_and(|c| crate::db::guard::may_run(&c).is_err());
+        if !locked {
+            return false;
+        }
+        let (this, again) = (cx.weak_entity(), Rc::new(again));
+        let then: super::sql_guard::Then = Rc::new(move |window, cx| {
+            let again = again.clone();
+            let _ = this.update(cx, |f, cx| again(f, window, cx));
+        });
+        super::sql_guard::production_gate(then, window, cx);
+        true
+    }
+
     fn start_run(&mut self, connection: String, statements: Vec<(Range<usize>, String)>, window: &mut Window, cx: &mut Context<Self>) {
+        // Production runs nothing until unlocked: asked here, and refused by the session too.
+        // What this run was for (a page, a sort, a followed key) waits with it, and is
+        // gone with a Cancel, not left for the next statement.
+        if config::find(&connection).is_some_and(|c| crate::db::guard::may_run(&c).is_err()) {
+            let held = self.sql.as_mut().map(|sql| (sql.next_origin.take(), std::mem::take(&mut sql.keep_results)));
+            let held = Rc::new(RefCell::new(held));
+            let this = cx.weak_entity();
+            let then: super::sql_guard::Then = Rc::new(move |window, cx| {
+                let (connection, statements) = (connection.clone(), statements.clone());
+                let held = held.borrow_mut().take();
+                let _ = this.update(cx, |f, cx| {
+                    if let (Some(sql), Some((origin, keep))) = (&mut f.sql, held) {
+                        sql.next_origin = origin;
+                        sql.keep_results = keep;
+                    }
+                    f.start_run(connection, statements, window, cx)
+                });
+            });
+            return super::sql_guard::production_gate(then, window, cx);
+        }
         let color = cx.theme().primary.opacity(0.12);
         let marks: Vec<RangeDecoration> = statements.iter().map(|(r, _)| RangeDecoration::new(r.clone()).with_style(RangeDecorationStyle::Fill).with_color(color)).collect();
         let editor = self.editor.clone();
@@ -1212,9 +1254,60 @@ impl FileView {
         cx.notify();
     }
 
+    /// Typing in a file that has a database and has not connected yet: its
+    /// schema is read for the completions, as kept or from the server. A
+    /// locked production connection gives only what was kept.
+    pub(super) fn want_schema(&mut self, cx: &mut Context<Self>) {
+        let Some(sql) = &mut self.sql else { return };
+        if sql.session.is_some() || sql.schema.borrow().is_some() {
+            return;
+        }
+        let (Some(id), Some(database)) = (sql.connection.clone(), sql.database.clone()) else { return };
+        let asked = (id, database);
+        let Some(connection) = crate::db::config::find(&asked.0) else { return };
+        let locked = crate::db::guard::may_run(&connection).is_err();
+        if let Some((id, database, was_locked)) = &sql.schema_asked
+            && (id, database) == (&asked.0, &asked.1)
+            && !(*was_locked && !locked)
+        {
+            return;
+        }
+        sql.schema_asked = Some((asked.0.clone(), asked.1.clone(), locked));
+        sql._schema = cx.spawn(async move |this: WeakEntity<FileView>, cx| {
+            // What was kept first: the keyring is asked only when there is nothing.
+            let (id, database) = (connection.id.clone(), asked.1.clone());
+            let mut read = cx.background_spawn(async move { crate::db::schema_cache::read(&id, &database).map(|(_, schema)| schema) }).await;
+            if read.is_none() && crate::db::guard::may_run(&connection).is_ok() {
+                let Ok(password) = this.update(cx, |_, cx| crate::db::password::read_for(&connection, cx)) else { return };
+                if let Ok(password) = password.await {
+                    let database = asked.1.clone();
+                    read = cx.background_spawn(crate::procs::on_thread(move || crate::db::browse::schema(&connection, password, &database))).await.ok();
+                }
+            }
+            let Some(schema) = read else { return };
+            let _ = this.update(cx, |this, cx| {
+                let Some(sql) = &this.sql else { return };
+                let same = sql.connection.as_ref() == Some(&asked.0) && sql.database.as_ref() == Some(&asked.1);
+                if same && sql.schema.borrow().is_none() {
+                    *sql.schema.borrow_mut() = Some(Arc::new(schema));
+                    this.refresh_schema_rows(cx);
+                }
+            });
+        });
+    }
+
     fn connect(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(connection) = config::find(&id) else { return };
-        let password = crate::db::password::read(&id, &connection.name, cx);
+        // Not now: the first statement asks, and connects once unlocked.
+        if crate::db::guard::may_run(&connection).is_err() {
+            if let Some(sql) = &mut self.sql {
+                sql.session = None;
+                sql.status = Status::Off;
+                sql.say(LogKind::Info, "Production is locked: it connects when a statement runs and you unlock it", None);
+            }
+            return cx.notify();
+        }
+        let password = crate::db::password::read_for(&connection, cx);
         let Some(sql) = &mut self.sql else { return };
         sql.session = None;
         sql.status = Status::Connecting;
@@ -1223,7 +1316,8 @@ impl FileView {
             let password = match password.await {
                 Ok(password) => password,
                 Err(e) => {
-                    let _ = this.update_in(cx, |this, window, cx| this.sql_event(Event::Lost(format!("The keyring: {e}")), window, cx));
+                    let said = if e.to_string() == crate::db::guard::LOCKED { e.to_string() } else { format!("The keyring: {e}") };
+                    let _ = this.update_in(cx, |this, window, cx| this.sql_event(Event::Lost(said), window, cx));
                     return;
                 }
             };
@@ -1445,6 +1539,7 @@ impl FileView {
                 }
             }
             Event::Manual(manual) => sql.manual = manual,
+            Event::TransactionEnded => sql.uncommitted = false,
             Event::BatchDone { error } => {
                 let applied_ix = sql.applying.take();
                 let applied = applied_ix.and_then(|ix| sql.results.get(ix));
@@ -1582,14 +1677,17 @@ impl FileView {
         cx.notify();
     }
 
-    fn end_transaction(&mut self, commit: bool, cx: &mut Context<Self>) {
+    fn end_transaction(&mut self, commit: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if commit && self.production_asks(|f, window, cx| f.end_transaction(true, window, cx), window, cx) {
+            return;
+        }
         let Some(sql) = &mut self.sql else { return };
         if sql.status == Status::Running {
             return;
         }
+        // Nothing open any more once the server says so: a refused Commit leaves it open.
         if let Some(session) = &sql.session {
             if commit { session.commit() } else { session.rollback() }
-            sql.uncommitted = false;
         }
         cx.notify();
     }
@@ -1726,6 +1824,29 @@ impl FileView {
         });
     }
 
+    /// A production connection's mark: locked, or until when it is not; a click turns it.
+    fn production_badge(&self, cx: &mut Context<Self>) -> AnyElement {
+        let until = crate::db::guard::open_until();
+        let red = gpui_kit::red();
+        Button::new("sql-production")
+            .xsmall()
+            .ghost()
+            .label(match until {
+                Some(until) => format!("PRODUCTION · unlocked until {}", crate::local_time::hour_minute(until)),
+                None => "PRODUCTION · locked".into(),
+            })
+            .text_color(red)
+            .tooltip(if until.is_some() { "Click to lock production now" } else { "Statements here ask before production is unlocked. Click to unlock" })
+            .on_click(cx.listener(move |_, _, window, cx| {
+                if crate::db::guard::is_open() {
+                    super::sql_guard::lock_now(cx);
+                } else {
+                    super::sql_guard::production_gate(Rc::new(|_, _| {}), window, cx);
+                }
+            }))
+            .into_any_element()
+    }
+
     /// The line over the text: run, stop, the connection, the database.
     pub(super) fn render_sql_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let sql = self.sql.as_ref()?;
@@ -1844,6 +1965,7 @@ impl FileView {
                         .tooltip(format!("Stop ({})", crate::keymap::label("sql_stop")))
                         .on_click(cx.listener(|this, _, _, cx| this.stop_statement(cx))),
                 )
+                .children(current.as_ref().filter(|c| c.production).map(|_| self.production_badge(cx)))
                 .child(connections)
                 .child(databases)
                 .when(!is_redis, |bar| bar.child(
@@ -1855,8 +1977,8 @@ impl FileView {
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_manual(cx))),
                 ))
                 .when(sql.manual, |bar| {
-                    bar.child(Button::new("sql-commit").xsmall().ghost().label("Commit").disabled(sql.status != Status::Ready).on_click(cx.listener(|this, _, _, cx| this.end_transaction(true, cx))))
-                        .child(Button::new("sql-rollback").xsmall().ghost().label("Rollback").disabled(sql.status != Status::Ready).on_click(cx.listener(|this, _, _, cx| this.end_transaction(false, cx))))
+                    bar.child(Button::new("sql-commit").xsmall().ghost().label("Commit").disabled(sql.status != Status::Ready).on_click(cx.listener(|this, _, window, cx| this.end_transaction(true, window, cx))))
+                        .child(Button::new("sql-rollback").xsmall().ghost().label("Rollback").disabled(sql.status != Status::Ready).on_click(cx.listener(|this, _, window, cx| this.end_transaction(false, window, cx))))
                 })
                 .when(sql.uncommitted, |bar| bar.child(div().flex_none().text_color(hsla(0.08, 0.9, 0.5, 1.)).child("● uncommitted")))
                 .child(div().flex_1())
@@ -2459,6 +2581,10 @@ impl FileView {
 
     /// A CSV file into a table: its columns matched by name, shown, then run on a word.
     pub(super) fn import_csv(&mut self, table: String, window: &mut Window, cx: &mut Context<Self>) {
+        let again = table.clone();
+        if self.production_asks(move |f, window, cx| f.import_csv(again.clone(), window, cx), window, cx) {
+            return;
+        }
         let picked = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
         let importing = cx.spawn_in(window, async move |this: WeakEntity<FileView>, cx| {
             let Ok(Ok(Some(paths))) = picked.await else { return };
@@ -2655,14 +2781,18 @@ impl FileView {
                             if let Some(sql) = &mut f.sql {
                                 sql.applying_added = adds;
                             }
-                            f.apply_edits(ix, run, cx)
+                            f.apply_edits(ix, run, window, cx)
                         });
                     }),
                 ))
         });
     }
 
-    fn apply_edits(&mut self, ix: usize, statements: Vec<String>, cx: &mut Context<Self>) {
+    fn apply_edits(&mut self, ix: usize, statements: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let again = statements.clone();
+        if self.production_asks(move |f, window, cx| f.apply_edits(ix, again.clone(), window, cx), window, cx) {
+            return;
+        }
         let Some(sql) = &mut self.sql else { return };
         if sql.status != Status::Ready {
             sql.say(LogKind::Failed, "Not connected: the changes still wait for Save", None);

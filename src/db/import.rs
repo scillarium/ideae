@@ -127,6 +127,7 @@ fn connections(sources: HashMap<String, Source>, hops: &HashMap<String, SshHop>)
                 bastion: None,
                 tls: Default::default(),
                 color: None,
+                production: false,
             })
         })
         .collect();
@@ -158,23 +159,101 @@ fn config_root(home: &Path) -> PathBuf {
     }
 }
 
-/// What DataGrip knows. Reads files: not for the UI thread.
-pub fn find(existing: &[Connection]) -> Vec<Found> {
-    let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from) else { return Vec::new() };
-    let root = config_root(&home);
-    let mut ssh_files = Vec::new();
-    files_under(&root, &|name| name == "sshConfigs.xml", 2, &mut ssh_files);
-    let mut hops = HashMap::new();
-    for file in ssh_files {
-        if let Ok(xml) = std::fs::read_to_string(file) {
-            hops.extend(ssh_configs(&xml, &home));
+/// The projects a JetBrains IDE opened lately, from its `recentProjects.xml`.
+fn recent_projects(xml: &str, home: &Path) -> Vec<PathBuf> {
+    let Ok(doc) = roxmltree::Document::parse(xml) else { return Vec::new() };
+    doc.descendants()
+        .filter(|n| n.has_tag_name("option") && n.attribute("name") == Some("additionalInfo"))
+        .flat_map(|option| option.descendants().filter(|n| n.has_tag_name("entry")).filter_map(|n| n.attribute("key")))
+        .map(|key| home_in(key, home))
+        .collect()
+}
+
+/// The folders of the projects ideae has, read from its state as it is on disk.
+fn ideae_projects() -> Vec<PathBuf> {
+    let Ok(bytes) = std::fs::read(crate::state::state_path()) else { return Vec::new() };
+    let Ok(state) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return Vec::new() };
+    state["projects"].as_array().into_iter().flatten().filter_map(|p| p["path"].as_str()).map(PathBuf::from).collect()
+}
+
+/// A project's own data sources: in its `.idea`, where an IDE keeps those added to the project.
+fn project_sources(projects: impl IntoIterator<Item = PathBuf>, out: &mut Vec<PathBuf>) {
+    let mut seen = std::collections::HashSet::new();
+    for project in projects {
+        if !seen.insert(project.clone()) {
+            continue;
+        }
+        for name in ["dataSources.xml", "dataSources.local.xml"] {
+            let file = project.join(".idea").join(name);
+            if file.is_file() {
+                out.push(file);
+            }
         }
     }
+}
+
+/// What DataGrip knows, and the JetBrains IDEs' projects. Reads files: not for the UI thread.
+pub fn find(existing: &[Connection]) -> Vec<Found> {
+    let Some(home) = home() else { return Vec::new() };
+    let root = config_root(&home);
     let is_sources = |name: &str| matches!(name, "dataSources.xml" | "dataSources.local.xml" | "data_sources_history.xml");
     let mut files = Vec::new();
     files_under(&home.join("DataGripProjects"), &is_sources, 4, &mut files);
-    files_under(&root, &is_sources, 3, &mut files);
+    let mut recent = Vec::new();
+    files_under(&root, &|name| name == "recentProjects.xml", 2, &mut recent);
+    let recent = recent.into_iter().filter_map(|file| std::fs::read_to_string(file).ok()).flat_map(|xml| recent_projects(&xml, &home));
+    project_sources(ideae_projects().into_iter().chain(recent), &mut files);
     // The projects' own files come first: what they say is newer than a history's.
+    files_under(&root, &is_sources, 3, &mut files);
+    found_in(files, &home, existing)
+}
+
+/// The data sources of the projects in `folder` and the folders under it,
+/// for those no IDE opened lately. Reads files: not for the UI thread.
+pub fn find_in(folder: &Path, existing: &[Connection]) -> Vec<Found> {
+    let Some(home) = home() else { return Vec::new() };
+    let mut projects = Vec::new();
+    projects_under(folder, 4, &mut projects);
+    let mut files = Vec::new();
+    project_sources(projects, &mut files);
+    found_in(files, &home, existing)
+}
+
+fn home() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+
+/// Folders that have a `.idea`, down to `depth`; not into hidden folders or
+/// what builds and package managers fill.
+fn projects_under(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if dir.join(".idea").is_dir() {
+        out.push(dir.to_path_buf());
+    }
+    if depth == 0 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || matches!(name.as_ref(), "node_modules" | "vendor" | "target" | "build" | "dist" | "var") {
+            continue;
+        }
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            projects_under(&entry.path(), depth - 1, out);
+        }
+    }
+}
+
+fn found_in(files: Vec<PathBuf>, home: &Path, existing: &[Connection]) -> Vec<Found> {
+    let mut ssh_files = Vec::new();
+    files_under(&config_root(home), &|name| name == "sshConfigs.xml", 2, &mut ssh_files);
+    let mut hops = HashMap::new();
+    for file in ssh_files {
+        if let Ok(xml) = std::fs::read_to_string(file) {
+            hops.extend(ssh_configs(&xml, home));
+        }
+    }
     let mut sources = HashMap::new();
     for file in files {
         if let Ok(xml) = std::fs::read_to_string(file) {
@@ -220,5 +299,41 @@ mod tests {
         let hop = found[0].ssh.as_ref().unwrap();
         assert_eq!((hop.host.as_str(), hop.port), ("bastion.example", 2222));
         assert_eq!(hop.key.as_deref(), Some(Path::new("/home/someone/.ssh/id_ed25519")));
+    }
+
+    /// Data sources added to a project live in its `.idea`: the projects an
+    /// IDE opened lately are where to look for them.
+    #[test]
+    fn a_recent_project_s_data_sources_are_found() {
+        let dir = std::env::temp_dir().join(format!("ideae-recent-{}", std::process::id()));
+        let project = dir.join("work/shop");
+        std::fs::create_dir_all(project.join(".idea")).unwrap();
+        std::fs::write(project.join(".idea/dataSources.xml"), r#"<project><component><data-source name="Shop" uuid="p1"><jdbc-url>jdbc:postgresql://pg:5433/shop</jdbc-url></data-source></component></project>"#).unwrap();
+        std::fs::write(project.join(".idea/dataSources.local.xml"), r#"<project><component><data-source name="Shop" uuid="p1"><user-name>app</user-name></data-source></component></project>"#).unwrap();
+        let recent = recent_projects(
+            r#"<application><component name="RecentProjectsManager"><option name="additionalInfo"><map>
+                <entry key="$USER_HOME$/work/shop"><value><RecentProjectMetaInfo/></value></entry>
+                <entry key="$USER_HOME$/work/gone"><value><RecentProjectMetaInfo/></value></entry>
+            </map></option></component></application>"#,
+            &dir,
+        );
+        assert_eq!(recent, [dir.join("work/shop"), dir.join("work/gone")]);
+        let mut files = Vec::new();
+        project_sources(recent.into_iter().chain([project.clone()]), &mut files);
+        assert_eq!(files.len(), 2, "each file once, none of a project that is gone: {files:?}");
+        let mut sources = HashMap::new();
+        for file in files {
+            read_sources(&std::fs::read_to_string(file).unwrap(), &mut sources);
+        }
+        let found = connections(sources, &HashMap::new());
+        assert_eq!((found[0].name.as_str(), found[0].host.as_str(), found[0].port, found[0].user.as_str()), ("Shop", "pg", 5433, "app"));
+        // A folder chosen by hand: its projects, not what is inside their dependencies.
+        std::fs::create_dir_all(dir.join("work/shop/node_modules/lib/.idea")).unwrap();
+        std::fs::create_dir_all(dir.join("work/old/api/.idea")).unwrap();
+        let mut projects = Vec::new();
+        projects_under(&dir.join("work"), 4, &mut projects);
+        projects.sort();
+        assert_eq!(projects, [dir.join("work/old/api"), dir.join("work/shop")]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

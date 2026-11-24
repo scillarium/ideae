@@ -3,7 +3,7 @@ use super::*;
 // ---------------------------------------------------------------- the side
 
 /// The panels of the side, in the order of their keys.
-pub(super) const PANES: [RightPane; 4] = [RightPane::Changes, RightPane::Files, RightPane::Structure, RightPane::Run];
+pub(super) const PANES: [RightPane; 5] = [RightPane::Changes, RightPane::Files, RightPane::Structure, RightPane::Run, RightPane::Database];
 
 /// How wide the strip of their marks is, at the window's edge.
 const STRIP: f32 = 38.;
@@ -37,7 +37,7 @@ impl AssetSource for Assets {
             "lock-open", "variable", "arrow-down-a-z", "house", "square-plus", "archive-restore", "archive",
             "git-branch-minus", "settings", "message-circle-question-mark", "copy", "folder-open", "square-terminal",
             "pencil", "trash", "file-plus", "pin", "pin-off", "columns-2", "rows-2", "pause", "star", "star-off",
-            "external-link", "rotate-ccw", "git-compare", "eye", "clock", "bot", "git-fork", "minus", "scissors", "clipboard-paste", "lightbulb", "send", "bookmark", "wand-sparkles",
+            "external-link", "rotate-ccw", "git-compare", "eye", "clock", "bot", "git-fork", "minus", "scissors", "clipboard-paste", "lightbulb", "send", "bookmark", "wand-sparkles", "database", "table",
         );
         Ok(Some(ours.into()))
     }
@@ -81,6 +81,7 @@ impl RightPane {
             RightPane::Files => "Files",
             RightPane::Structure => "Structure",
             RightPane::Run => "Run",
+            RightPane::Database => "Database",
         }
     }
 
@@ -91,6 +92,7 @@ impl RightPane {
             RightPane::Files => "side-icons/folder.svg",
             RightPane::Structure => "side-icons/list-tree.svg",
             RightPane::Run => "side-icons/play.svg",
+            RightPane::Database => "side-icons/database.svg",
         };
         svg().path(drawing).size(px(18.)).flex_none().text_color(color)
     }
@@ -101,6 +103,7 @@ impl RightPane {
             RightPane::Files => "files_panel",
             RightPane::Structure => "structure_panel",
             RightPane::Run => "run_panel",
+            RightPane::Database => "database_panel",
         }
     }
 }
@@ -390,6 +393,7 @@ impl TaskView {
                 kept("structure-sorted", "side-icons/arrow-down-a-z.svg", "By name, not as in the file", settings.4, |s, on| s.structure_sorted = on, cx),
             ],
             RightPane::Run => Vec::new(),
+            RightPane::Database => self.db_panel_tools(cx),
         }
     }
 
@@ -475,6 +479,7 @@ impl TaskView {
             .child(title);
         match pane {
             RightPane::Run => panel.child(self.render_run_panel(cx)),
+            RightPane::Database => panel.child(self.render_db_panel(cx)),
             RightPane::Files => panel.child(self.render_tree(cx)),
             RightPane::Structure => panel.child(self.render_structure(cx)),
             RightPane::Changes => panel.child(self.render_change_lists(cx)).child(self.render_commit_box(cx)),

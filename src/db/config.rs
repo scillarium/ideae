@@ -149,6 +149,9 @@ pub struct Connection {
     /// A mark of [`COLORS`], to tell production from the rest at a glance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<u8>,
+    /// Production: nothing runs on it until unlocked (`guard`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub production: bool,
 }
 
 /// The marks a connection can have: name and hue.
@@ -171,6 +174,9 @@ struct Store {
     bastions: Vec<Bastion>,
     #[serde(default)]
     files: Vec<FileChoice>,
+    /// How long production stays unlocked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    production_minutes: Option<u32>,
 }
 
 impl Store {
@@ -285,6 +291,15 @@ pub fn put(mut connection: Connection) {
             None => s.connections.push(connection),
         }
     });
+}
+
+/// One of the choices offered; anything else written into the file is the default.
+pub fn production_minutes() -> u32 {
+    with(|s| s.production_minutes).filter(|m| super::guard::MINUTES.contains(m)).unwrap_or(10)
+}
+
+pub fn set_production_minutes(minutes: u32) {
+    change(|s| s.production_minutes = Some(minutes));
 }
 
 pub fn bastions() -> Vec<Bastion> {
@@ -419,9 +434,11 @@ mod tests {
                 ssh: None,
                 tls: Tls { mode: TlsMode::Verify, ca: Some("/keys/ca.pem".into()) },
                 color: Some(0),
+                production: false,
             }],
             bastions: vec![Bastion { id: "b1".into(), name: "Main".into(), hop: SshHop { host: "bastion.example".into(), port: 22, user: "me".into(), key: Some("/keys/id".into()) } }],
             files: vec![FileChoice { path: "/work/a.sql".into(), connection: "a1".into(), database: Some("app".into()) }],
+            production_minutes: None,
         }
     }
 

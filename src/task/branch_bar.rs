@@ -48,7 +48,7 @@ impl TaskView {
                         .ghost()
                         .label("◨")
                         .selected(self.side_over)
-                        .tooltip(format!("Changes, Files, Structure, Run  {}", crate::keymap::label("changes_panel")))
+                        .tooltip(format!("Changes, Files, Structure, Run, Database  {}", crate::keymap::label("changes_panel")))
                         .on_click(cx.listener(|this, _, _, cx| {
                             cx.stop_propagation();
                             this.side_over = !this.side_over;

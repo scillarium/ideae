@@ -331,6 +331,7 @@ impl FileView {
     pub(super) fn on_edit(&mut self, cx: &mut Context<Self>) {
         self.edit_version += 1;
         self.change_popup = None;
+        self.want_schema(cx);
         self.mark_changes(true, cx);
         self.refresh_preview(true, cx);
         let typed = {

@@ -52,6 +52,8 @@ pub enum Event {
     Note { text: String, failed: bool },
     /// Whether statements now wait for a commit.
     Manual(bool),
+    /// The open transaction was committed or rolled back.
+    TransactionEnded,
     Schema(Arc<Schema>),
     /// What is known of the schema: being read, or as read and still so.
     SchemaState(SchemaState),
@@ -121,6 +123,11 @@ impl SchemaJob {
         if let Some((_, schema)) = kept
             && !say(Event::Schema(Arc::new(schema)))
         {
+            return;
+        }
+        // Locked production: what was kept, and no login to the server.
+        if super::guard::may_run(&self.connection).is_err() {
+            say(Event::SchemaState(SchemaState::Current));
             return;
         }
         if !say(Event::SchemaState(SchemaState::Checking)) {
@@ -246,6 +253,7 @@ impl Drop for Session {
 
 /// Connects once and says what the server is: for Test Connection.
 pub fn test(connection: &Connection, password: Option<String>) -> Result<String> {
+    super::guard::may_run(connection).map_err(anyhow::Error::msg)?;
     let tunnel = connection.ssh.as_ref().map(|hop| tunnel::open(hop, &connection.host, connection.port)).transpose()?;
     let mut backend = backend::connect(connection, tunnel.as_deref(), password, None)?;
     Ok(backend.version())
@@ -253,6 +261,10 @@ pub fn test(connection: &Connection, password: Option<String>) -> Result<String>
 
 fn run(connection: Connection, password: Option<String>, database: Option<String>, inbox: Receiver<Command>, events: Sender<Event>, stopping: Arc<Stopping>) {
     let say = |event| events.send_blocking(event).is_ok();
+    if let Err(locked) = super::guard::may_run(&connection) {
+        say(Event::Lost(locked));
+        return;
+    }
     let open_tunnel = || connection.ssh.as_ref().map(|hop| tunnel::open(hop, &connection.host, connection.port)).transpose();
     // Held for as long as the connection, and dropped after it.
     let mut tunnel = match open_tunnel() {
@@ -285,6 +297,32 @@ fn run(connection: Connection, password: Option<String>, database: Option<String
         Err(e) => say(Event::Note { text: e.to_string(), failed: true }),
     };
     while let Ok(command) = inbox.recv_blocking() {
+        // Locked again since it connected: nothing more goes to production,
+        // and the session stays, with its transaction, for when it is unlocked.
+        if let Err(locked) = super::guard::may_run(&connection) {
+            let refused = format!("{locked}. Nothing was sent");
+            let alive = match &command {
+                Command::Run(statements) => {
+                    let statement = statements.first().map_or(0..0, |(r, _)| r.clone());
+                    say(Event::Failed { statement, message: refused, at: None }) && say(Event::Idle { stopped: false })
+                }
+                Command::Batch(_) => say(Event::BatchDone { error: Some(refused) }) && say(Event::Idle { stopped: false }),
+                Command::Export { .. } | Command::Import { .. } => say(Event::Note { text: refused, failed: true }) && say(Event::Idle { stopped: false }),
+                Command::Commit => say(Event::Note { text: refused, failed: true }),
+                _ => true,
+            };
+            // Auto-commit turned on commits what is open: only turning it off passes.
+            let passes = matches!(command, Command::ListDatabases | Command::UseDatabase(_) | Command::Rollback | Command::ShowCreate(_) | Command::SetManual(true));
+            if matches!(command, Command::SetManual(false)) && !say(Event::Note { text: format!("{locked}. Auto-commit was not turned on"), failed: true }) {
+                break;
+            }
+            if !alive {
+                break;
+            }
+            if !passes {
+                continue;
+            }
+        }
         // Found dead before anything is sent: nothing is lost, and nothing runs twice.
         if matches!(command, Command::Run(_) | Command::Export { .. } | Command::Batch(_) | Command::Import { .. }) && !db.ping() {
             if manual {
@@ -355,8 +393,14 @@ fn run(connection: Connection, password: Option<String>, database: Option<String
                 }
                 Err(e) => answer(Err(e)),
             },
-            Command::Commit => answer(db.commit().map(|()| Event::Note { text: "Committed".into(), failed: false })),
-            Command::Rollback => answer(db.rollback().map(|()| Event::Note { text: "Rolled back".into(), failed: false })),
+            Command::Commit => match db.commit() {
+                Ok(()) => say(Event::Note { text: "Committed".into(), failed: false }) && say(Event::TransactionEnded),
+                Err(e) => answer(Err(e)),
+            },
+            Command::Rollback => match db.rollback() {
+                Ok(()) => say(Event::Note { text: "Rolled back".into(), failed: false }) && say(Event::TransactionEnded),
+                Err(e) => answer(Err(e)),
+            },
             Command::ShowCreate(table) => answer(db.definition(&table).map(|text| Event::Definition { table, text })),
             Command::Export { sql, format, path, table } => {
                 stopping.running.store(true, Ordering::Release);

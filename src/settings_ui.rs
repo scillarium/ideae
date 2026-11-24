@@ -716,7 +716,7 @@ fn databases_page() -> SettingPage {
         let rows = connections.into_iter().enumerate().map(|(ix, c)| {
             let through = c.ssh.as_ref().map(|hop| format!(" · through {}", hop.host)).unwrap_or_default();
             let about = format!("{} · {}@{}:{}{through}", c.driver.name(), c.user, c.host, c.port);
-            let (edit, remove) = (c.id.clone(), c.id.clone());
+            let (edit, remove, production) = (c.id.clone(), c.id.clone(), c.production);
             h_flex()
                 .id(SharedString::from(format!("db-connection-{ix}")))
                 .test_support()
@@ -728,11 +728,21 @@ fn databases_page() -> SettingPage {
                     crate::task::connection_dialog(Some(edit.clone()), Some(Rc::new(|_, window, _| window.refresh())), window, cx);
                 }))
                 .child(Button::new(SharedString::from(format!("db-remove-{ix}"))).xsmall().ghost().label("Remove").on_click(move |_, window, cx| {
-                    crate::db::config::remove(&remove);
-                    crate::db::password::delete(&remove, cx).detach();
-                    crate::db::history::clear(Some(remove.clone()));
-                    crate::db::schema_cache::forget(&remove);
-                    window.refresh();
+                    let remove = remove.clone();
+                    let go: Rc<dyn Fn(&mut Window, &mut App)> = Rc::new(move |window, cx| {
+                        crate::db::config::remove(&remove);
+                        crate::task::forget_in_panel(&remove, cx);
+                        crate::db::password::delete(&remove, cx).detach();
+                        crate::db::history::clear(Some(remove.clone()));
+                        crate::db::schema_cache::forget(&remove);
+                        window.refresh();
+                    });
+                    // A production connection goes only unlocked, as it is changed.
+                    if production {
+                        crate::task::production_gate(go, window, cx);
+                    } else {
+                        go(window, cx);
+                    }
                 }))
         });
         gpui_kit::component::v_flex()
@@ -779,7 +789,47 @@ fn databases_page() -> SettingPage {
                 crate::task::bastion_dialog(None, Some(Rc::new(|_, window, _| window.refresh())), window, cx);
             })))
     });
-    SettingPage::new("Databases").default_open(true).groups([SettingGroup::new().title("Connections").item(list), SettingGroup::new().title("SSH bastions").item(bastions)])
+    let production = SettingItem::render(|_, _, cx| {
+        let muted = cx.theme().muted_foreground;
+        let until = crate::db::guard::open_until();
+        let minutes = crate::db::config::production_minutes();
+        let count = crate::db::config::list().iter().filter(|c| c.production).count();
+        let state = match until {
+            Some(until) => format!("Unlocked until {}. {count} production connections.", crate::local_time::hour_minute(until)),
+            None => format!("Locked. {count} production connections."),
+        };
+        gpui_kit::component::v_flex()
+            .gap_2()
+            .child(div().text_xs().text_color(muted).child(
+                "A connection with the Production profile runs nothing until production is unlocked, which asks first, and then for a while only: a statement does not go there by mistake.",
+            ))
+            .child(div().text_sm().child(state))
+            .child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(div().text_sm().pr_2().child("Stays unlocked"))
+                    .children(crate::db::guard::MINUTES.into_iter().map(|m| {
+                        Button::new(SharedString::from(format!("prod-minutes-{m}"))).xsmall().ghost().label(format!("{m} min")).selected(minutes == m).on_click(move |_, window, _| {
+                            crate::db::config::set_production_minutes(m);
+                            window.refresh();
+                        })
+                    })),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(Button::new("prod-lock").small().outline().label("Lock now").disabled(until.is_none()).on_click(|_, _, cx| crate::task::lock_now(cx)))
+                    .when(until.is_none() && count > 0, |row| {
+                        row.child(Button::new("prod-unlock-now").small().outline().label("Unlock…").on_click(|_, window, cx| crate::task::production_gate(Rc::new(|_, _| {}), window, cx)))
+                    }),
+            )
+    });
+    SettingPage::new("Databases").default_open(true).groups([
+        SettingGroup::new().title("Connections").item(list),
+        SettingGroup::new().title("Production").item(production),
+        SettingGroup::new().title("SSH bastions").item(bastions),
+    ])
 }
 
 /// Where the shortcuts are among the pages.

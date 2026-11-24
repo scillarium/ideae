@@ -30,6 +30,7 @@ fn connection(driver: Driver, host: &str, user: &str, database: Option<&str>) ->
         bastion: None,
         tls: Default::default(),
         color: None,
+        production: false,
     })
 }
 
@@ -260,6 +261,7 @@ fn direct(driver: Driver, port_env: &str, user: &str, database: Option<&str>, mo
         ssh: None,
         tls: Tls { mode, ca },
         color: None,
+        production: false,
     })
 }
 

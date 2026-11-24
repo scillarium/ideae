@@ -154,6 +154,15 @@ pub fn read(id: &str, name: &str, cx: &App) -> Task<Result<Option<String>>> {
     }
 }
 
+/// A connection's password to connect with: a production one only while unlocked.
+pub fn read_for(connection: &super::config::Connection, cx: &App) -> Task<Result<Option<String>>> {
+    if let Err(locked) = super::guard::may_run(connection) {
+        return Task::ready(Err(anyhow::anyhow!(locked)));
+    }
+    let reading = read(&connection.id, &connection.name, cx);
+    cx.background_executor().spawn(async move { reading.await?.map(super::guard::kept).transpose().map_err(anyhow::Error::msg) })
+}
+
 pub fn write(id: &str, name: &str, password: &str, cx: &App) -> Task<Result<()>> {
     if stand_in().is_some() {
         return Task::ready(Ok(()));

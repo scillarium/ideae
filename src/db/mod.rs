@@ -3,12 +3,14 @@
 //! Apart from the keyring's calls, nothing here knows the UI.
 
 pub mod backend;
+pub mod browse;
 pub mod config;
 pub mod csv;
 pub mod export;
 #[cfg(all(test, unix))]
 mod fake;
 pub mod format;
+pub mod guard;
 pub mod history;
 pub mod import;
 #[cfg(all(test, unix))]

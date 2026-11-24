@@ -161,7 +161,7 @@ impl TaskView {
             c.review = review;
             cx.notify();
         });
-        let pane = |ix: u8| strip::PANES[usize::from(ix.min(3))];
+        let pane = |ix: u8| strip::PANES[usize::from(ix).min(strip::PANES.len() - 1)];
         self.side = [(!session.side_closed).then(|| pane(session.side_panel)), session.side_below.map(pane)];
         self.keyed = self.side[0].or(self.side[1]).unwrap_or(RightPane::Changes);
         self.structure_file = self.focused_ix().filter(|&ix| matches!(self.tabs[ix].kind, TabKind::File(_))).map(|ix| self.tabs[ix].id);

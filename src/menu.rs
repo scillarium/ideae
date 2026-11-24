@@ -463,7 +463,7 @@ thread_local! {
 /// the focused tab closed, or the window is in the Dock. A test holds the
 /// menus to this list.
 const REACHED: &[&str] = &[
-    "agent", "changes", "shell", "history", "changes_panel", "files_panel", "structure_panel", "run_panel", "focus_mode", "close_tab",
+    "agent", "changes", "shell", "history", "changes_panel", "files_panel", "structure_panel", "run_panel", "database_panel", "focus_mode", "close_tab",
     "reopen_tab", "back", "forward", "branches", "go_to_file", "go_to_symbol", "find_in_files", "replace_in_files",
 ];
 
@@ -774,6 +774,7 @@ fn menus(shown: Shown) -> Vec<Menu> {
         checked(panel(RightPane::Files), in_task("Files Panel", "files_panel")),
         checked(panel(RightPane::Structure), in_task("Structure Panel", "structure_panel")),
         checked(panel(RightPane::Run), in_task("Run Panel", "run_panel")),
+        checked(panel(RightPane::Database), in_task("Database Panel", "database_panel")),
         sep(),
         checked(focus_mode, in_task("Focus Mode", "focus_mode")),
         when(true, act(if presenting { "End Presentation" } else { "Presentation Mode…" }, PresentationMode)),
@@ -984,7 +985,7 @@ mod tests {
     /// Every item has an action, and no menu says the same thing twice.
     #[test]
     fn the_menus_are_made() {
-        let menus = super::menus(Shown { projects: true, project: true, task: Some(InHand { main: false, side: false, ready: true, grouped: true, starred: false, open: true, agent: true, agent_ended: true, closable: true, file: true, back: true, forward: true, reopen: true, services: true, services_running: true, services_waiting: true, git: [true; 9], front: Some(FrontTab::Agent), panels: [false; 4] }), spaces: vec!["Work".into()], ..Default::default() });
+        let menus = super::menus(Shown { projects: true, project: true, task: Some(InHand { main: false, side: false, ready: true, grouped: true, starred: false, open: true, agent: true, agent_ended: true, closable: true, file: true, back: true, forward: true, reopen: true, services: true, services_running: true, services_waiting: true, git: [true; 9], front: Some(FrontTab::Agent), panels: [false; 5] }), spaces: vec!["Work".into()], ..Default::default() });
         let titles: Vec<_> = menus.iter().map(|m| m.name.as_ref()).collect();
         // Linux and Windows have no menu named after the app: its items are in File and Help.
         assert_eq!(titles[usize::from(cfg!(target_os = "macos"))..], ["File", "Edit", "View", "Navigate", "Task", "Git", "Window", "Help"]);
@@ -1032,7 +1033,7 @@ mod tests {
         assert!(!live(&none, "Task", "Rename Task…") && !live(&none, "Git", "Commit…") && !live(&none, "Task", "Star Task"));
         assert!(!live(&none, "File", "Archive Merged Tasks…") && !live(&none, "File", "New Task…") && !live(&none, "View", "Agent Tab"));
 
-        let task = InHand { main: false, side: false, ready: true, grouped: false, starred: true, open: true, agent: true, agent_ended: false, closable: true, file: false, back: false, forward: false, reopen: false, services: true, services_running: false, services_waiting: true, git: [true; 9], front: Some(FrontTab::Agent), panels: [false; 4] };
+        let task = InHand { main: false, side: false, ready: true, grouped: false, starred: true, open: true, agent: true, agent_ended: false, closable: true, file: false, back: false, forward: false, reopen: false, services: true, services_running: false, services_waiting: true, git: [true; 9], front: Some(FrontTab::Agent), panels: [false; 5] };
         let one = super::menus(Shown { task: Some(task), projects: true, project: true, ..Default::default() });
         assert!(live(&one, "File", "New Task…") && live(&one, "View", "Agent Tab") && live(&one, "Task", "Unstar Task") && live(&one, "Task", "Archive Task") && live(&one, "Git", "Pull"));
         assert!(!live(&one, "Task", "Stop All in Run Panel"));
@@ -1125,7 +1126,7 @@ mod bar {
     }
 
     fn task() -> InHand {
-        InHand { main: true, side: false, ready: true, grouped: false, starred: false, open: true, agent: true, agent_ended: false, closable: true, file: false, back: false, forward: false, reopen: false, services: false, services_running: false, services_waiting: false, git: [true; 9], front: None, panels: [false; 4] }
+        InHand { main: true, side: false, ready: true, grouped: false, starred: false, open: true, agent: true, agent_ended: false, closable: true, file: false, back: false, forward: false, reopen: false, services: false, services_running: false, services_waiting: false, git: [true; 9], front: None, panels: [false; 5] }
     }
 
     fn click_label(window: &mut Window, label: &str, cx: &mut gpui_kit::App) {

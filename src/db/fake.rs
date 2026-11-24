@@ -307,6 +307,45 @@ mod tests {
     }
 
     #[test]
+    fn the_database_panel_lists_a_connection_s_databases() {
+        let connection = Connection {
+            id: "panel".into(),
+            name: "Direct".into(),
+            driver: super::super::config::Driver::MySql,
+            host: "127.0.0.1".into(),
+            port: serve(),
+            user: "me".into(),
+            database: None,
+            ssh: None,
+            bastion: None,
+            tls: Default::default(),
+            color: None,
+            production: false,
+        };
+        assert_eq!(super::super::browse::databases(&connection, Some("secret".into())), Ok(vec!["app".to_string(), "other".to_string()]));
+
+        // Production, locked: nothing connects to it, whatever the password.
+        let _one = super::super::guard::TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        super::super::guard::lock();
+        let production = Connection { production: true, ..connection };
+        assert_eq!(super::super::browse::databases(&production, Some("secret".into())), Err(super::super::guard::LOCKED.to_string()));
+        let (_session, events) = Session::start(production.clone(), Some("secret".into()), None);
+        assert!(matches!(until(&events, |_| true), Event::Lost(said) if said == super::super::guard::LOCKED));
+
+        // Locked again while connected: the statement is refused, the session stays.
+        super::super::guard::unlock_for(Duration::from_secs(60));
+        let (session, events) = Session::start(production, Some("secret".into()), None);
+        assert!(matches!(until(&events, |e| matches!(e, Event::Connected { .. } | Event::Lost(_))), Event::Connected { .. }));
+        super::super::guard::lock();
+        let (rows, _, _, failed) = run(&session, &events, "SELECT rows 2");
+        assert!(rows.is_empty() && failed.is_some_and(|f| f.starts_with(super::super::guard::LOCKED)));
+        super::super::guard::unlock_for(Duration::from_secs(60));
+        let (rows, _, _, failed) = run(&session, &events, "SELECT rows 2");
+        assert_eq!((rows.len(), failed), (2, None));
+        super::super::guard::lock();
+    }
+
+    #[test]
     #[ignore]
     fn a_sql_file_runs() {
         // A hung protocol would otherwise hang the whole check.
@@ -336,6 +375,7 @@ mod tests {
             bastion: None,
             tls: Default::default(),
             color: None,
+            production: false,
         };
 
         let (session, events) = Session::start(connection.clone(), Some("secret".into()), None);

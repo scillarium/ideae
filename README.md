@@ -104,7 +104,7 @@ More in [docs/features.md](docs/features.md); notes for each system in
 | Ctrl+F12 | File structure |
 | F2 / Shift+F2 | Next / previous problem |
 | F11 / Shift+F11 | Bookmark the line / the task's bookmarks |
-| Alt+1 / 2 / 3 / 4 | Changes / Files / Structure / Run panel |
+| Alt+1 / 2 / 3 / 4 / 5 | Changes / Files / Structure / Run / Database panel |
 | Ctrl+F4 / Ctrl+Shift+F4 | Close tab / reopen the last closed |
 | Shift+Esc | Focus mode |
 

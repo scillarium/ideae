@@ -825,7 +825,7 @@ pub fn state_dir() -> PathBuf {
     state_path().parent().map(PathBuf::from).unwrap_or_else(data_dir)
 }
 
-fn state_path() -> PathBuf {
+pub fn state_path() -> PathBuf {
     // A separate state for experiments, such as headless test runs.
     match std::env::var_os("IDEAE_STATE") {
         Some(path) => PathBuf::from(path),

@@ -24,6 +24,7 @@ struct Fields {
     tls: Rc<std::cell::Cell<TlsMode>>,
     ca: Entity<InputState>,
     color: Rc<std::cell::Cell<Option<u8>>>,
+    production: Rc<std::cell::Cell<bool>>,
     said: Rc<RefCell<Option<(bool, String)>>>,
     /// Whether a password is kept for it, once the keyring has said.
     kept: Rc<RefCell<Option<crate::db::password::Kept>>>,
@@ -68,6 +69,7 @@ impl Fields {
             ssh,
             tls: Tls { mode: self.tls.get(), ca: (!ca.is_empty()).then(|| PathBuf::from(ca)) },
             color: self.color.get(),
+            production: self.production.get(),
         })
     }
 }
@@ -93,6 +95,7 @@ pub fn connection_dialog(id: Option<String>, saved: Option<Saved>, window: &mut 
         tls: Rc::new(std::cell::Cell::new(e.map_or(TlsMode::Prefer, |c| c.tls.mode))),
         ca: input(e.and_then(|c| c.tls.ca.as_ref()).map(|p| p.display().to_string()).unwrap_or_default(), "Optional: else the public authorities", window, cx),
         color: Rc::new(std::cell::Cell::new(e.and_then(|c| c.color))),
+        production: Rc::new(std::cell::Cell::new(e.is_some_and(|c| c.production))),
         said: Rc::default(),
         kept: Rc::default(),
     };
@@ -106,13 +109,14 @@ pub fn connection_dialog(id: Option<String>, saved: Option<Saved>, window: &mut 
             .detach();
     }
     let old_name = e.map(|c| c.name.clone());
+    let was_production = e.is_some_and(|c| c.production);
     fields.password.update(cx, |i, cx| i.set_masked(true, window, cx));
     let the_id = id.clone().unwrap_or_else(config::new_id);
     let existing = id.is_some();
     let first = fields.name.clone();
 
     window.open_dialog(cx, move |dialog, _, _| {
-        let save = {
+        let store = {
             let (fields, the_id, saved, old_name) = (fields.clone(), the_id.clone(), saved.clone(), old_name.clone());
             Rc::new(move |window: &mut Window, cx: &mut App| {
                 let connection = match fields.read(the_id.clone(), cx) {
@@ -125,6 +129,7 @@ pub fn connection_dialog(id: Option<String>, saved: Option<Saved>, window: &mut 
                 let password = fields.password.read(cx).value().to_string();
                 let (id, name) = (connection.id.clone(), connection.name.clone());
                 config::put(connection);
+                crate::task::forget_in_panel(&id, cx);
                 window.close_dialog(cx);
                 let saved = saved.clone();
                 if password.is_empty() {
@@ -153,6 +158,18 @@ pub fn connection_dialog(id: Option<String>, saved: Option<Saved>, window: &mut 
                     .detach();
             })
         };
+        // A production connection is changed, or made a development one, only unlocked.
+        let save: Rc<dyn Fn(&mut Window, &mut App)> = {
+            let store = store.clone();
+            Rc::new(move |window: &mut Window, cx: &mut App| {
+                if was_production {
+                    let store = store.clone();
+                    super::sql_guard::production_gate(Rc::new(move |window, cx| store(window, cx)), window, cx);
+                } else {
+                    store(window, cx);
+                }
+            })
+        };
         let test = {
             let (fields, the_id) = (fields.clone(), the_id.clone());
             move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
@@ -166,12 +183,19 @@ pub fn connection_dialog(id: Option<String>, saved: Option<Saved>, window: &mut 
                 *fields.said.borrow_mut() = Some((true, "Connecting…".into()));
                 window.refresh();
                 let typed = fields.password.read(cx).value().to_string();
-                let stored = (typed.is_empty() && existing).then(|| crate::db::password::read(&the_id, &connection.name, cx));
+                let stored = (typed.is_empty() && existing).then(|| crate::db::password::read_for(&connection, cx));
                 let said = fields.said.clone();
                 window
                     .spawn(cx, async move |cx| {
                         let password = match stored {
-                            Some(reading) => reading.await.ok().flatten(),
+                            Some(reading) => match reading.await {
+                                Ok(password) => password,
+                                Err(e) => {
+                                    *said.borrow_mut() = Some((false, e.to_string()));
+                                    let _ = cx.update(|window, _| window.refresh());
+                                    return;
+                                }
+                            },
                             None => (!typed.is_empty()).then_some(typed),
                         };
                         let product = connection.driver.name();
@@ -241,6 +265,25 @@ pub fn connection_dialog(id: Option<String>, saved: Option<Saved>, window: &mut 
                             h_flex().gap_2().child(div().w(px(96.)).flex_none()).child(div().flex_1().text_xs().text_color(if warn { hsla(0.08, 0.9, 0.45, 1.) } else { muted }).child(text))
                         })
                         .child(row("Database", &f.database))
+                        .child(h_flex().gap_1().items_center().child(label("Profile")).children([(false, "Development"), (true, "Production")].into_iter().map(|(on, name)| {
+                            let production = f.production.clone();
+                            Button::new(SharedString::from(format!("sql-profile-{name}")))
+                                .xsmall()
+                                .ghost()
+                                .label(name)
+                                .when(on, |b| b.text_color(gpui_kit::red()))
+                                .selected(production.get() == on)
+                                .on_click(move |_, window, _| {
+                                    production.set(on);
+                                    window.refresh();
+                                })
+                        })))
+                        .when(f.production.get(), |this| {
+                            this.child(h_flex().gap_2().child(div().w(px(96.)).flex_none()).child(div().flex_1().text_xs().text_color(muted).child(format!(
+                                "Locked: nothing runs on it until you unlock production, which asks first, for {} minutes at a time.",
+                                config::production_minutes()
+                            ))))
+                        })
                         .child(h_flex().gap_1().items_center().child(label("Color")).child({
                             let color = f.color.clone();
                             Button::new("sql-color-none").xsmall().ghost().label("None").selected(color.get().is_none()).on_click(move |_, window, _| {
@@ -406,29 +449,65 @@ pub fn bastion_dialog(id: Option<String>, saved: Option<Saved>, window: &mut Win
     first.update(cx, |i, cx| i.focus(window, cx));
 }
 
+type ImportList = Rc<RefCell<Option<Vec<(crate::db::import::Found, bool)>>>>;
+
+/// The data sources of the projects in a folder chosen, added to the list
+/// below those found already.
+fn look_in_folder(list: ImportList, window: &mut Window, cx: &mut App) {
+    let picked = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Look here".into()) });
+    window
+        .spawn(cx, async move |cx| {
+            let Ok(Ok(Some(paths))) = picked.await else { return };
+            let Some(folder) = paths.into_iter().next() else { return };
+            let existing = config::list();
+            let found = cx.background_spawn(async move { crate::db::import::find_in(&folder, &existing) }).await;
+            {
+                let mut list = list.borrow_mut();
+                let items = list.get_or_insert_with(Vec::new);
+                for f in found {
+                    if !items.iter().any(|(i, _)| i.connection.id == f.connection.id) {
+                        let take = !f.known;
+                        items.push((f, take));
+                    }
+                }
+            }
+            let _ = cx.update(|window, _| window.refresh());
+        })
+        .detach();
+}
+
 /// What DataGrip knows, to bring over: never its passwords.
 pub fn import_dialog(window: &mut Window, cx: &mut App) {
-    let found: Rc<RefCell<Option<Vec<(crate::db::import::Found, bool)>>>> = Rc::default();
+    let found: ImportList = Rc::default();
     let filling = found.clone();
     let existing = config::list();
     let reading = cx.background_spawn(async move { crate::db::import::find(&existing) });
     window
         .spawn(cx, async move |cx| {
             let list = reading.await;
-            *filling.borrow_mut() = Some(list.into_iter().map(|f| { let take = !f.known; (f, take) }).collect());
+            // Below what a folder looked in already brought, not over it.
+            let mut filled = filling.borrow_mut();
+            let items = filled.get_or_insert_with(Vec::new);
+            for f in list {
+                if !items.iter().any(|(i, _)| i.connection.id == f.connection.id) {
+                    let take = !f.known;
+                    items.push((f, take));
+                }
+            }
+            drop(filled);
             let _ = cx.update(|window, _| window.refresh());
         })
         .detach();
     window.open_dialog(cx, move |dialog, _, cx| {
         let muted = cx.theme().muted_foreground;
-        let (shown, taking) = (found.clone(), found.clone());
+        let (shown, taking, adding) = (found.clone(), found.clone(), found.clone());
         dialog
             .title("Import from DataGrip")
             .w(px(640.))
             .content(move |content, _, _| {
                 let list = shown.borrow();
                 let body = match list.as_ref() {
-                    None => div().text_sm().text_color(muted).child("Reading DataGrip's settings…").into_any_element(),
+                    None => div().text_sm().text_color(muted).child("Reading DataGrip's settings and the IDEs' projects…").into_any_element(),
                     Some(items) if items.is_empty() => div().text_sm().text_color(muted).child("No MySQL, PostgreSQL or Redis data source found.").into_any_element(),
                     Some(items) => v_flex()
                         .id("sql-import-list")
@@ -455,17 +534,47 @@ pub fn import_dialog(window: &mut Window, cx: &mut App) {
                 };
                 content.child(v_flex().gap_2().child(body).child(div().text_xs().text_color(muted).child("Passwords stay in DataGrip: each connection asks for its own once, in its form.")))
             })
-            .footer(h_flex().justify_end().gap_2().child(Button::new("sql-import-cancel").ghost().label("Cancel").on_click(|_, window, cx| window.close_dialog(cx))).child(
+            .footer(h_flex().justify_end().gap_2().child({
+                Button::new("sql-import-folder")
+                    .ghost()
+                    .label("Look in a folder…")
+                    .tooltip("The projects in a folder and under it, for those no IDE opened lately")
+                    .on_click(move |_, window, cx| look_in_folder(adding.clone(), window, cx))
+            })
+            .child(div().flex_1())
+            .child(Button::new("sql-import-cancel").ghost().label("Cancel").on_click(|_, window, cx| window.close_dialog(cx))).child(
                 Button::new("sql-import-run").primary().label("Import").on_click(move |_, window, cx| {
-                    if let Some(items) = taking.borrow().as_ref() {
-                        for (item, take) in items {
-                            if *take {
-                                config::put(item.connection.clone());
+                    let held = taking.clone();
+                    let import: super::sql_guard::Then = Rc::new(move |window: &mut Window, cx: &mut App| {
+                        let taking = held.clone();
+                        if let Some(items) = taking.borrow().as_ref() {
+                            for (item, take) in items {
+                                if *take {
+                                    // One already here keeps what DataGrip does not know of it:
+                                    // its profile, mark and encryption.
+                                    let mut connection = item.connection.clone();
+                                    if let Some(here) = config::find(&connection.id) {
+                                        connection.production = here.production;
+                                        connection.color = here.color;
+                                        connection.tls = here.tls;
+                                    }
+                                    config::put(connection);
+                                    crate::task::forget_in_panel(&item.connection.id, cx);
+                                }
                             }
                         }
+                        window.close_dialog(cx);
+                        window.refresh();
+                    });
+                    // Over a production connection, as in its own form: only unlocked.
+                    let over_production = taking.borrow().as_ref().is_some_and(|items| {
+                        items.iter().any(|(item, take)| *take && config::find(&item.connection.id).is_some_and(|here| here.production))
+                    });
+                    if over_production {
+                        super::sql_guard::production_gate(import, window, cx);
+                    } else {
+                        import(window, cx);
                     }
-                    window.close_dialog(cx);
-                    window.refresh();
                 }),
             ))
     });
