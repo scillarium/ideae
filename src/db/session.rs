@@ -331,7 +331,10 @@ fn run(connection: Connection, password: Option<String>, database: Option<String
                 continue;
             }
         }
-        if let Some(name) = wanted_database.take() {
+        // Not on the Rollback that passes while locked: on PostgreSQL that would be a login.
+        if super::guard::may_run(&connection).is_ok()
+            && let Some(name) = wanted_database.take()
+        {
             match db.use_database(&name) {
                 Ok(()) => current = Some(name),
                 Err(e) => {
