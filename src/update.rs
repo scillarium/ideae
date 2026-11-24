@@ -147,15 +147,15 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// `origin/main`: what the remote's HEAD names, else its `main`.
-fn base(dir: &Path) -> String {
-    git(dir, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).unwrap_or_else(|_| "origin/main".into())
+/// `origin/main` or `origin/master`, fetched without asking for a password.
+fn fetch_base(dir: &Path) -> Result<String, String> {
+    crate::git::fetch_base(dir)?;
+    crate::git::remote_default(dir).map(|b| format!("origin/{b}")).ok_or_else(|| "no origin/main or origin/master".into())
 }
 
 /// Fetches and counts the base's commits the checkout lacks, off the UI thread.
 pub fn behind(dir: &Path) -> Result<Option<Behind>, String> {
-    git(dir, &["fetch", "--quiet", "origin"])?;
-    let base = base(dir);
+    let base = fetch_base(dir)?;
     let commits = git(dir, &["rev-list", "--count", &format!("HEAD..{base}")])?.parse().unwrap_or(0);
     Ok((commits > 0).then_some(Behind { commits, base }))
 }
@@ -177,8 +177,22 @@ fn target_dir(exe: &Path) -> Option<&Path> {
     (release.file_name()? == "release").then(|| release.parent()).flatten()
 }
 
+/// Runs a step of the update as a session of its own, tied to the app: a
+/// build left by a quit or a restart ends with it (`end_child_sessions`).
 fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
-    let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        // SAFETY: setsid only changes the child's own session.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+    let out = crate::procs::spawn_tied(cmd).and_then(|c| c.wait_with_output()).map_err(|e| format!("{what}: {e}"))?;
     if out.status.success() {
         return Ok(());
     }
@@ -187,14 +201,15 @@ fn run(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
     Err(format!("{what} failed:\n{}", lines[lines.len().saturating_sub(12)..].join("\n")))
 }
 
-/// Pulls the base into the checkout and builds it over the running binary;
+/// Brings the base into the checkout (fast-forward only) and builds it over the running binary;
 /// the title bar's new-build notice then offers the restart.
 pub fn rebuild(dir: &Path) -> Result<(), String> {
-    let base = base(dir);
+    let base = fetch_base(dir)?;
     if let Some(why) = blocked(dir, &base) {
         return Err(why);
     }
-    git(dir, &["pull", "--ff-only", "--quiet"])?;
+    // The base that was counted, not whatever the branch tracks.
+    git(dir, &["merge", "--ff-only", "--quiet", &base])?;
     let exe = crate::desktop::exe().map_err(|e| e.to_string())?;
     let mut cargo = crate::procs::command("cargo");
     cargo.current_dir(dir).args(["build", "--release"]);
@@ -251,5 +266,13 @@ mod tests {
         git(&["switch", "-q", "-c", "feature"]);
         assert!(super::blocked(d, "origin/main").unwrap().contains("is on feature, not main"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_step_tells_its_last_lines() {
+        assert_eq!(super::run(std::process::Command::new("sh").args(["-c", "true"]), "ok"), Ok(()));
+        let e = super::run(std::process::Command::new("sh").args(["-c", "echo one >&2; echo two >&2; exit 3"]), "step").unwrap_err();
+        assert_eq!(e, "step failed:\none\ntwo");
     }
 }
