@@ -450,17 +450,31 @@ pub fn bastion_dialog(id: Option<String>, saved: Option<Saved>, window: &mut Win
 }
 
 type ImportList = Rc<RefCell<Option<Vec<(crate::db::import::Found, bool)>>>>;
+/// What a look in a folder is doing, or how it ended.
+type Looking = Rc<RefCell<Option<(bool, String)>>>;
 
 /// The data sources of the projects in a folder chosen, added to the list
 /// below those found already.
-fn look_in_folder(list: ImportList, window: &mut Window, cx: &mut App) {
+fn look_in_folder(list: ImportList, looking: Looking, window: &mut Window, cx: &mut App) {
     let picked = cx.prompt_for_paths(gpui_kit::PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Look here".into()) });
     window
         .spawn(cx, async move |cx| {
             let Ok(Ok(Some(paths))) = picked.await else { return };
             let Some(folder) = paths.into_iter().next() else { return };
+            *looking.borrow_mut() = Some((true, format!("Looking in {}…", folder.display())));
+            let _ = cx.update(|window, _| window.refresh());
             let existing = config::list();
-            let found = cx.background_spawn(async move { crate::db::import::find_in(&folder, &existing) }).await;
+            let shown = folder.display().to_string();
+            let (found, cut) = cx.background_spawn(async move { crate::db::import::find_in(&folder, &existing) }).await;
+            let count = found.len();
+            *looking.borrow_mut() = Some((
+                false,
+                if cut {
+                    format!("{shown}: stopped after 20,000 folders, {count} data sources found so far. A smaller folder is looked through whole.")
+                } else {
+                    format!("{shown}: {count} data sources.")
+                },
+            ));
             {
                 let mut list = list.borrow_mut();
                 let items = list.get_or_insert_with(Vec::new);
@@ -479,6 +493,7 @@ fn look_in_folder(list: ImportList, window: &mut Window, cx: &mut App) {
 /// What DataGrip knows, to bring over: never its passwords.
 pub fn import_dialog(window: &mut Window, cx: &mut App) {
     let found: ImportList = Rc::default();
+    let looking: Looking = Rc::default();
     let filling = found.clone();
     let existing = config::list();
     let reading = cx.background_spawn(async move { crate::db::import::find(&existing) });
@@ -501,6 +516,7 @@ pub fn import_dialog(window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, cx| {
         let muted = cx.theme().muted_foreground;
         let (shown, taking, adding) = (found.clone(), found.clone(), found.clone());
+        let (status, look) = (looking.clone(), looking.clone());
         dialog
             .title("Import from DataGrip")
             .w(px(640.))
@@ -532,14 +548,19 @@ pub fn import_dialog(window: &mut Window, cx: &mut App) {
                         }))
                         .into_any_element(),
                 };
-                content.child(v_flex().gap_2().child(body).child(div().text_xs().text_color(muted).child("Passwords stay in DataGrip: each connection asks for its own once, in its form.")))
+                let status = status.borrow().clone();
+                content.child(v_flex().gap_2().child(body).when_some(status, |this, (busy, text)| this.child(div().text_xs().text_color(if busy { muted } else { gpui_kit::green() }).child(text))).child(div().text_xs().text_color(muted).child("Passwords stay in DataGrip: each connection asks for its own once, in its form.")))
             })
             .footer(h_flex().justify_end().gap_2().child({
                 Button::new("sql-import-folder")
                     .ghost()
                     .label("Look in a folder…")
                     .tooltip("The projects in a folder and under it, for those no IDE opened lately")
-                    .on_click(move |_, window, cx| look_in_folder(adding.clone(), window, cx))
+                    .disabled(look.borrow().as_ref().is_some_and(|(busy, _)| *busy))
+                    .on_click({
+                        let look = look.clone();
+                        move |_, window, cx| look_in_folder(adding.clone(), look.clone(), window, cx)
+                    })
             })
             .child(div().flex_1())
             .child(Button::new("sql-import-cancel").ghost().label("Cancel").on_click(|_, window, cx| window.close_dialog(cx))).child(

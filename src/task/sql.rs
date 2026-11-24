@@ -1264,14 +1264,15 @@ impl FileView {
         }
         let (Some(id), Some(database)) = (sql.connection.clone(), sql.database.clone()) else { return };
         let asked = (id, database);
-        let Some(connection) = crate::db::config::find(&asked.0) else { return };
-        let locked = crate::db::guard::may_run(&connection).is_err();
+        // Per keystroke: no more than comparing names, until something is to be read.
         if let Some((id, database, was_locked)) = &sql.schema_asked
             && (id, database) == (&asked.0, &asked.1)
-            && !(*was_locked && !locked)
+            && !(*was_locked && crate::db::guard::is_open())
         {
             return;
         }
+        let Some(connection) = crate::db::config::find(&asked.0) else { return };
+        let locked = crate::db::guard::may_run(&connection).is_err();
         sql.schema_asked = Some((asked.0.clone(), asked.1.clone(), locked));
         sql._schema = cx.spawn(async move |this: WeakEntity<FileView>, cx| {
             // What was kept first: the keyring is asked only when there is nothing.

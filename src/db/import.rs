@@ -210,13 +210,20 @@ pub fn find(existing: &[Connection]) -> Vec<Found> {
 
 /// The data sources of the projects in `folder` and the folders under it,
 /// for those no IDE opened lately. Reads files: not for the UI thread.
-pub fn find_in(folder: &Path, existing: &[Connection]) -> Vec<Found> {
-    let Some(home) = home() else { return Vec::new() };
+/// How many folders a look goes through at most: a home folder or `/`
+/// chosen ends there, not after minutes.
+const FOLDERS_LOOKED: usize = 20_000;
+
+/// The data sources of the projects in `folder` and under it; whether the
+/// look stopped at its limit before seeing all of them.
+pub fn find_in(folder: &Path, existing: &[Connection]) -> (Vec<Found>, bool) {
+    let Some(home) = home() else { return (Vec::new(), false) };
     let mut projects = Vec::new();
-    projects_under(folder, 4, &mut projects);
+    let mut left = FOLDERS_LOOKED;
+    projects_under(folder, 4, &mut left, &mut projects);
     let mut files = Vec::new();
     project_sources(projects, &mut files);
-    found_in(files, &home, existing)
+    (found_in(files, &home, existing), left == 0)
 }
 
 fn home() -> Option<PathBuf> {
@@ -225,7 +232,11 @@ fn home() -> Option<PathBuf> {
 
 /// Folders that have a `.idea`, down to `depth`; not into hidden folders or
 /// what builds and package managers fill.
-fn projects_under(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+fn projects_under(dir: &Path, depth: usize, left: &mut usize, out: &mut Vec<PathBuf>) {
+    if *left == 0 {
+        return;
+    }
+    *left -= 1;
     if dir.join(".idea").is_dir() {
         out.push(dir.to_path_buf());
     }
@@ -240,7 +251,7 @@ fn projects_under(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
             continue;
         }
         if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            projects_under(&entry.path(), depth - 1, out);
+            projects_under(&entry.path(), depth - 1, left, out);
         }
     }
 }
@@ -330,10 +341,14 @@ mod tests {
         // A folder chosen by hand: its projects, not what is inside their dependencies.
         std::fs::create_dir_all(dir.join("work/shop/node_modules/lib/.idea")).unwrap();
         std::fs::create_dir_all(dir.join("work/old/api/.idea")).unwrap();
-        let mut projects = Vec::new();
-        projects_under(&dir.join("work"), 4, &mut projects);
+        let (mut projects, mut left) = (Vec::new(), 100);
+        projects_under(&dir.join("work"), 4, &mut left, &mut projects);
         projects.sort();
         assert_eq!(projects, [dir.join("work/old/api"), dir.join("work/shop")]);
+        // Its limit reached, a look stops where it is.
+        let (mut projects, mut left) = (Vec::new(), 1);
+        projects_under(&dir.join("work"), 4, &mut left, &mut projects);
+        assert!(projects.is_empty() && left == 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

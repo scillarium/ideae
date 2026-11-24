@@ -77,7 +77,8 @@ backups and git, but any program of your user can ask for them while you are log
 in. Import from DataGrip brings data sources and their SSH settings, not their
 passwords: DataGrip's own, and those added to a project in any JetBrains IDE (its
 `.idea`), for the projects the IDEs opened lately and ideae's. **Look in a folder…**
-adds the projects in a folder and under it, for older ones.
+adds the projects in a folder and under it, four levels down and 20,000 folders at
+most, for older ones.
 
 ## Production
 
@@ -86,10 +87,13 @@ catch: nothing runs on such a connection until production is unlocked, which ask
 first. Unlocked, every production connection runs for 10 minutes (5, 10, 15 or 30, in
 Settings, Databases), then they lock again by themselves; the title bar says until
 when, and a click locks at once; time asleep counts. Unlocking takes a click on the
-button, not Enter. A statement, a Commit, saved cells, an export or an import sent after
-that is refused by the session itself, which stays connected with its transaction, and
-asks again. A locked production file connects only when something runs. A production connection is changed, or made a development one,
-only while unlocked.
+button, not Enter. Locked, nothing reaches the server but a Rollback: a statement, a
+Commit, saved cells, an export or an import is refused by the session itself, which
+stays connected with its transaction, and asks again; another database chosen is
+taken once unlocked, and the list of databases, a table's definition, the schema and
+the panel read nothing new. A locked production file connects only when something
+runs. A production connection is changed, made a development one, overwritten by an
+import or removed only while unlocked.
 
 It keeps a statement from going to production by mistake, yours or of a file left
 open; an agent has no way to run a statement through the app or to answer the

@@ -296,6 +296,8 @@ fn run(connection: Connection, password: Option<String>, database: Option<String
         }
         Err(e) => say(Event::Note { text: e.to_string(), failed: true }),
     };
+    // A database chosen while production was locked.
+    let mut wanted_database: Option<String> = None;
     while let Ok(command) = inbox.recv_blocking() {
         // Locked again since it connected: nothing more goes to production,
         // and the session stays, with its transaction, for when it is unlocked.
@@ -308,11 +310,17 @@ fn run(connection: Connection, password: Option<String>, database: Option<String
                 }
                 Command::Batch(_) => say(Event::BatchDone { error: Some(refused) }) && say(Event::Idle { stopped: false }),
                 Command::Export { .. } | Command::Import { .. } => say(Event::Note { text: refused, failed: true }) && say(Event::Idle { stopped: false }),
-                Command::Commit => say(Event::Note { text: refused, failed: true }),
+                Command::Commit | Command::ShowCreate(_) => say(Event::Note { text: refused, failed: true }),
+                // Another database on PostgreSQL is another login: it is taken once unlocked.
+                Command::UseDatabase(name) => {
+                    wanted_database = Some(name.clone());
+                    true
+                }
                 _ => true,
             };
-            // Auto-commit turned on commits what is open: only turning it off passes.
-            let passes = matches!(command, Command::ListDatabases | Command::UseDatabase(_) | Command::Rollback | Command::ShowCreate(_) | Command::SetManual(true));
+            // Nothing reaches the server but ending what is open. Auto-commit turned
+            // on commits it: only turning it off passes.
+            let passes = matches!(command, Command::Rollback | Command::SetManual(true));
             if matches!(command, Command::SetManual(false)) && !say(Event::Note { text: format!("{locked}. Auto-commit was not turned on"), failed: true }) {
                 break;
             }
@@ -321,6 +329,16 @@ fn run(connection: Connection, password: Option<String>, database: Option<String
             }
             if !passes {
                 continue;
+            }
+        }
+        if let Some(name) = wanted_database.take() {
+            match db.use_database(&name) {
+                Ok(()) => current = Some(name),
+                Err(e) => {
+                    if !answer(Err(e)) {
+                        break;
+                    }
+                }
             }
         }
         // Found dead before anything is sent: nothing is lost, and nothing runs twice.

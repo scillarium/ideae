@@ -159,8 +159,7 @@ pub fn read_for(connection: &super::config::Connection, cx: &App) -> Task<Result
     if let Err(locked) = super::guard::may_run(connection) {
         return Task::ready(Err(anyhow::anyhow!(locked)));
     }
-    let reading = read(&connection.id, &connection.name, cx);
-    cx.background_executor().spawn(async move { reading.await?.map(super::guard::kept).transpose().map_err(anyhow::Error::msg) })
+    read(&connection.id, &connection.name, cx)
 }
 
 pub fn write(id: &str, name: &str, password: &str, cx: &App) -> Task<Result<()>> {

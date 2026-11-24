@@ -245,7 +245,15 @@ fn with<T>(read: impl FnOnce(&Store) -> T) -> T {
     read(store.get_or_insert_with(|| load_from(&path())))
 }
 
+/// Counts the changes, for what is made from the connections to know when to be made again.
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Acquire)
+}
+
 fn change(apply: impl FnOnce(&mut Store)) {
+    GENERATION.fetch_add(1, Ordering::AcqRel);
     {
         let mut store = STORE.write().unwrap_or_else(|e| e.into_inner());
         // Changed before the first read was done: that read is needed now.

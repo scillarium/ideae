@@ -11,8 +11,6 @@ use std::{
 
 use super::config::{self, Connection};
 
-/// What a build that sealed production passwords left in the keyring.
-const SEALED: &str = "ideae-sealed:v1:";
 pub const LOCKED: &str = "Production is locked: unlock it to run this";
 pub const MINUTES: [u32; 4] = [5, 10, 15, 30];
 
@@ -70,11 +68,6 @@ pub fn may_run(connection: &Connection) -> Result<(), String> {
     if production && !is_open() { Err(LOCKED.into()) } else { Ok(()) }
 }
 
-/// A password as the keyring has it; one sealed by an earlier build cannot be opened any more.
-pub fn kept(stored: String) -> Result<String, String> {
-    if stored.starts_with(SEALED) { Err("This password was sealed by an earlier build: type it again in the connection's form".into()) } else { Ok(stored) }
-}
-
 /// Tests that lock or unlock hold this: the state is the process's.
 #[cfg(test)]
 pub static TESTS: Mutex<()> = Mutex::new(());
@@ -107,6 +100,5 @@ mod tests {
         assert!(may_run(&connection(true)).is_ok() && open_until().is_some() && left().is_some());
         unlock_for(Duration::ZERO);
         assert_eq!(may_run(&connection(true)), Err(LOCKED.into()));
-        assert!(kept("plain".into()).is_ok() && kept(format!("{SEALED}abc")).is_err());
     }
 }
