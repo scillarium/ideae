@@ -267,6 +267,15 @@ mod tests {
         prompt(&mut stream, "hi");
         until(&mut stream, &mut thread, &|t| t.status == Status::Done);
 
+        // A handover that cannot happen is told, and the daemon serves on.
+        proto::write_msg(&mut stream, &Msg::Upgrade { exe: dir.join("no-such-build") }).unwrap();
+        loop {
+            match proto::read_frame(&mut stream) {
+                Ok(Frame::Msg(Msg::Stays)) => break,
+                Ok(_) => {}
+                Err(e) => panic!("the daemon left: {e}"),
+            }
+        }
         proto::write_msg(&mut stream, &Msg::Upgrade { exe: app.clone() }).unwrap();
         // The old daemon leaves once the new one has the sessions.
         while proto::read_frame(&mut stream).is_ok() {}

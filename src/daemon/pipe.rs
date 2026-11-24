@@ -87,13 +87,17 @@ impl Pipe {
 
     /// The program's pid, and copies of its input and output for another daemon.
     pub fn handover(&self) -> Option<(u32, OwnedFd, OwnedFd)> {
-        // SAFETY: dup returns new descriptors this side owns.
-        let (a, b) = unsafe { (libc::dup(self.fds.0), libc::dup(self.fds.1)) };
-        if a < 0 || b < 0 {
-            return None;
-        }
-        Some(unsafe { (self.pid, OwnedFd::from_raw_fd(a), OwnedFd::from_raw_fd(b)) })
+        Some((self.pid, copy(self.fds.0)?, copy(self.fds.1)?))
     }
+}
+
+/// A copy of a descriptor that no program started from here gets: a plain
+/// `dup` is open in the daemon's successor, and in every shell and agent,
+/// for as long as they run.
+pub fn copy(fd: RawFd) -> Option<OwnedFd> {
+    // SAFETY: F_DUPFD_CLOEXEC returns a new descriptor this side owns.
+    let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    (copy >= 0).then(|| unsafe { OwnedFd::from_raw_fd(copy) })
 }
 
 /// What the daemon holds as the session's handle; the session keeps the

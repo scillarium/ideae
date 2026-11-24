@@ -184,9 +184,12 @@ fn dial(upgrade: bool) -> Option<(UnixStream, UnixStream, Vec<Hook>, Vec<String>
                     // started again.
                     let _ = proto::write_msg(&mut writer, &Msg::Shutdown);
                 }
-                // It exits once done; wait for that, then connect again.
+                // It exits once done; wait for that, then connect again. One
+                // that could not hand over says so, or goes on sending what
+                // its agents report: then it is attached to as it is.
                 let _ = reader.set_read_timeout(Some(Duration::from_secs(15)));
-                while proto::read_frame(&mut reader).is_ok() {}
+                let patience = Instant::now() + Duration::from_secs(20);
+                while Instant::now() < patience && matches!(proto::read_frame(&mut reader), Ok(frame) if !matches!(frame, Frame::Msg(Msg::Stays))) {}
                 std::thread::sleep(Duration::from_millis(200));
             }
             // An old daemon that does not understand: replace it.

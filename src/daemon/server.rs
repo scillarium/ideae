@@ -148,6 +148,7 @@ pub fn run(adopt: bool) {
     }
     let shared: Shared = Arc::new(Mutex::new(Server { alone_since: Some(Instant::now()), ..Default::default() }));
     let mut handover = None;
+    handover::room(adopt);
     if adopt {
         match handover::receive(&shared) {
             Ok(channel) => handover = Some(channel),
@@ -262,7 +263,11 @@ fn serve(shared: Shared, stream: UnixStream) {
                 }
             }
             Frame::Msg(Msg::Shutdown) => shutdown(&shared),
-            Frame::Msg(Msg::Upgrade { exe }) => handover::give(&shared, &exe),
+            Frame::Msg(Msg::Upgrade { exe }) => {
+                // It returns only when the sessions stayed here.
+                handover::give(&shared, &exe);
+                shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner).send(client, proto::encode_msg(&Msg::Stays));
+            }
             Frame::Msg(Msg::Hook(mut hook)) => {
                 hook.at = crate::state::now();
                 let mut s = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -565,6 +570,36 @@ mod handover {
 
     const FD: RawFd = 3;
 
+    /// Descriptors for many sessions: a daemon started from the desktop may
+    /// open 256 on macOS, and a session takes several. One that takes over
+    /// first closes what it only inherited: daemons before this one copied
+    /// every pty for their successor with a plain `dup`, so the copies went
+    /// from daemon to daemon until none was left for a handover.
+    pub(super) fn room(adopted: bool) {
+        // SAFETY: the limits are read and written in place; descriptors a
+        // process opens itself are close-on-exec (the standard library's,
+        // and the ones received here), so one that is not came with the exec.
+        unsafe {
+            let mut limit: libc::rlimit = std::mem::zeroed();
+            if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+                return;
+            }
+            if adopted {
+                for fd in FD + 1..limit.rlim_cur.min(65536) as RawFd {
+                    let flags = libc::fcntl(fd, libc::F_GETFD);
+                    if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
+                        libc::close(fd);
+                    }
+                }
+            }
+            let wanted = limit.rlim_max.min(10240);
+            if limit.rlim_cur < wanted {
+                limit.rlim_cur = wanted;
+                libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            }
+        }
+    }
+
     /// Old side: sends everything to a new daemon from `exe` and exits once
     /// it took over; on any failure it keeps serving.
     pub(super) fn give(shared: &Shared, exe: &Path) {
@@ -577,7 +612,9 @@ mod handover {
             if let Some(pipe) = &session.pipe {
                 // What it printed meanwhile is lost: the next window asks it
                 // for the whole thread anyway.
-                let Some((pid, input, output)) = pipe.handover() else { continue };
+                // A session that cannot be copied would end with this
+                // daemon: all of them go, or none.
+                let Some((pid, input, output)) = pipe.handover() else { return };
                 fds.push(input);
                 fds.push(output);
                 state.sessions.push(Handover { id: id.clone(), pid, size: session.size, fg: None, replay: Vec::new(), pipe: true });
@@ -589,12 +626,8 @@ mod handover {
             let excess = session.replay.len().saturating_sub(super::REPLAY_BYTES);
             session.replay.drain(..excess);
             let Some((fd, pid)) = session.handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner).pty() else { continue };
-            // SAFETY: dup returns a new descriptor this side owns.
-            let copy = unsafe { libc::dup(fd) };
-            if copy < 0 {
-                continue;
-            }
-            fds.push(unsafe { OwnedFd::from_raw_fd(copy) });
+            let Some(copy) = crate::daemon::pipe::copy(fd) else { return };
+            fds.push(copy);
             state.sessions.push(Handover {
                 id: id.clone(),
                 pid,

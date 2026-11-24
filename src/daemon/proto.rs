@@ -110,6 +110,9 @@ pub enum Msg {
     Hook(Hook),
     // daemon → window
     Welcome { protocol: u32, version: String, sessions: Vec<String>, hooks: Vec<Hook> },
+    /// The answer to an `Upgrade` that did not happen: this daemon goes on
+    /// serving its sessions.
+    Stays,
     Exited { id: String, code: Option<i32>, signal: Option<String> },
     Foreground { id: String, fg: Option<Fg> },
 }
