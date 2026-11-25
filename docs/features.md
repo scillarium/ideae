@@ -362,6 +362,8 @@ one, Structure and Run of the lower, and a mark dragged to the other end of
 the strip moves its panel there. With nothing shown the strip is all there
 is of the side, and the pointer resting on a mark brings its panel over the
 task until it leaves.
+A file clicked in Changes shows its diff and leaves the keyboard on the list:
+arrows move, Enter shows the diff, F4 opens the file itself.
 The Files panel and Go to file leave out what the system writes into folders
 for itself (.DS_Store, Thumbs.db, desktop.ini and the like); Changes still
 lists one git does not ignore.

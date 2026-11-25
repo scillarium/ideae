@@ -637,7 +637,14 @@ impl TaskView {
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.side_selected = ix;
-                this.show_changed_file(path.clone(), window, cx)
+                this.keyed = RightPane::Changes;
+                this.show_changed_file(path.clone(), window, cx);
+                // The keyboard stays on the list, as in JetBrains: arrows move, F4 opens the file.
+                if this.side_peek == Some(RightPane::Changes) {
+                    this.peek_focus.focus(window, cx);
+                } else {
+                    this.side_focus.focus(window, cx);
+                }
             }))
             .context_menu(move |menu, window, cx| {
                 use gpui_kit::component::menu::PopupMenuItem;

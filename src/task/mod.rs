@@ -2047,7 +2047,7 @@ impl TaskView {
     }
 
     /// Alt+1/2/3: shows the panel and moves the keyboard there. Arrows move,
-    /// Enter opens, Escape goes back to the tab.
+    /// Enter opens, F4 opens a changed file itself, Escape goes back to the tab.
     pub fn show_side_panel(&mut self, which: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.leave_focus_mode(window, cx);
         self.reveal_side_panel(which, cx);
@@ -2096,6 +2096,14 @@ impl TaskView {
                             file.update(cx, |f, cx| f.go_to_line(line, 0, window, cx));
                         }
                     }
+                }
+                return;
+            }
+            "f4" if len > 0 && self.keyed == RightPane::Changes => {
+                let file = &self.files[self.side_selected.min(len - 1)];
+                if !matches!(file.status, DiffFileStatus::Deleted) {
+                    let (path, line) = (self.root.join(file.path.as_ref()), file.first_line.saturating_sub(1));
+                    self.open_file(path, line, window, cx);
                 }
                 return;
             }
