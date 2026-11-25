@@ -12,6 +12,8 @@ enum Scope {
     Everywhere,
     /// Everywhere but terminals, where the key stays the shell's.
     NotInTerminal,
+    /// Nor Web tabs, where the page has the key (Cmd+K is many a site's search).
+    NotInTerminalOrPage,
     /// Anywhere a terminal does not take it first.
     App,
     Editor,
@@ -76,9 +78,9 @@ pub static SHORTCUTS: &[Shortcut] = &[
     shortcut!("forward", "Forward", "alt-right", NotInTerminal, task::NavigateForward),
     shortcut!("last_edit", "Last edit location", "ctrl-shift-backspace", NotInTerminal, task::LastEditLocation),
     // JetBrains' keys for Commit, Push and Update Project; a terminal keeps them (Cmd+K clears it).
-    shortcut!("commit", "Commit…", "ctrl-k", NotInTerminal, crate::menu::Git(task::GitCommand::Commit)),
-    shortcut!("push", "Push", "ctrl-shift-k", NotInTerminal, crate::menu::Git(task::GitCommand::Push)),
-    shortcut!("pull", "Pull", "ctrl-t", NotInTerminal, crate::menu::Git(task::GitCommand::Pull)),
+    shortcut!("commit", "Commit…", "ctrl-k", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Commit)),
+    shortcut!("push", "Push", "ctrl-shift-k", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Push)),
+    shortcut!("pull", "Pull", "ctrl-t", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Pull)),
     shortcut!("focus_mode", "Focus mode", "shift-escape", Everywhere, task::ToggleZoom),
     shortcut!("save", "Save", "ctrl-s", App, task::SaveFile),
     shortcut!("definition", "Go to definition", "ctrl-b", Editor, gpui_kit::component::input::GoToDefinition),
@@ -201,7 +203,20 @@ impl Shortcut {
         };
         let made = match self.scope {
             Scope::Everywhere => vec![bind(None, action()), bind(terminal, action())],
-            Scope::NotInTerminal => vec![bind(None, action()), bind(terminal, Box::new(NoAction))],
+            // A key the terminal binds itself (Cmd+K, its Clear on macOS) is
+            // its own already, and a NoAction there would take it from it.
+            Scope::NotInTerminal | Scope::NotInTerminalOrPage => {
+                let outside = bind(None, action());
+                let terminal_s = outside.as_ref().is_ok_and(|outside| terminal_binds(outside.keystrokes()));
+                let mut made = vec![outside];
+                if !terminal_s {
+                    made.push(bind(terminal, Box::new(NoAction)));
+                }
+                if self.scope == Scope::NotInTerminalOrPage {
+                    made.push(bind(Some(crate::browser::KEY_CONTEXT), Box::new(NoAction)));
+                }
+                made
+            }
             Scope::App => vec![bind(None, action())],
             Scope::Editor => vec![bind(Some("Input"), action())],
             Scope::File => vec![bind(Some("Input"), action()), bind(Some(crate::task::PREVIEW_CONTEXT), action())],
@@ -213,6 +228,11 @@ impl Shortcut {
         };
         made.into_iter().filter_map(Result::ok).collect()
     }
+}
+
+/// Whether a terminal has these keys bound for itself (its Copy, Clear).
+fn terminal_binds(keys: &[gpui_kit::KeybindingKeystroke]) -> bool {
+    gpui_cn::terminal::default_key_bindings().iter().any(|own| own.keystrokes() == keys)
 }
 
 /// Every shortcut as Settings has it, for startup.
@@ -298,7 +318,7 @@ pub fn label(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{SHORTCUTS, display};
+    use super::{SHORTCUTS, Scope, display, terminal_binds};
 
     #[test]
     fn ids_are_unique_and_labels_read() {
@@ -311,6 +331,44 @@ mod tests {
             assert_eq!(display("alt-down"), "Alt+Down");
             assert_eq!(display("ctrl-pagedown"), "Ctrl+PgDn");
             assert_eq!(display("ctrl--"), "Ctrl+-");
+        }
+    }
+
+    /// No two shortcuts on one key where both work, and none bound in a
+    /// terminal over a key the terminal binds for itself.
+    #[test]
+    fn no_shortcut_takes_another_s_key() {
+        use Scope::*;
+        // Where each binds: outside everything (None), or in a context.
+        let places = |scope: Scope| -> &'static [&'static str] {
+            match scope {
+                Everywhere => &["", "Terminal"],
+                NotInTerminal | NotInTerminalOrPage | App => &[""],
+                Editor => &["Input"],
+                File => &["Input", "Preview"],
+                Terminal => &["Terminal"],
+                Review => &["Review"],
+                Browser => &["Browser"],
+                Picture => &["Picture"],
+                Sql => &["Sql"],
+            }
+        };
+        let keyed: Vec<_> = SHORTCUTS.iter().filter(|s| !s.default.is_empty()).collect();
+        for (i, a) in keyed.iter().enumerate() {
+            for b in &keyed[i + 1..] {
+                if a.default != b.default || a.action().partial_eq(&*b.action()) {
+                    continue;
+                }
+                let shared = places(a.scope).iter().any(|p| places(b.scope).contains(p));
+                // Over the editor's keys, a SQL file's own: as they are meant.
+                let meant = matches!((a.scope, b.scope), (Sql, Editor) | (Editor, Sql) | (Browser | Picture, _) | (_, Browser | Picture));
+                assert!(!shared || meant, "{} and {} are both on {}", a.id, b.id, a.default);
+            }
+        }
+        for s in SHORTCUTS.iter().filter(|s| s.scope == Everywhere && !s.default.is_empty()) {
+            let keys = super::keys::key(s.default);
+            let binding = gpui_kit::KeyBinding::new(Box::leak(keys.into_boxed_str()), gpui_kit::NoAction, None);
+            assert!(!terminal_binds(binding.keystrokes()), "{} takes a terminal's own key", s.id);
         }
     }
 }
