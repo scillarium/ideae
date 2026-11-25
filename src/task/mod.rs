@@ -355,6 +355,7 @@ pub(crate) enum RightPane {
 }
 
 const NAV_LIMIT: usize = 100;
+const EDITS_KEPT: usize = 50;
 /// How far down the viewport a jump puts its line, unless already in view.
 const JUMP_AT: f32 = 1. / 3.;
 
@@ -686,6 +687,10 @@ pub struct TaskView {
     nav_back: Vec<NavPoint>,
     nav_forward: Vec<NavPoint>,
     navigating: bool,
+    /// Where you typed, the newest last, for Last edit location; how many of
+    /// them its presses since the last edit have gone back over.
+    edits: Vec<NavPoint>,
+    edits_back: usize,
     visible: bool,
     /// Pages of the task's Chrome no tab opened, to show as tabs.
     _new_pages: Option<Task<()>>,
@@ -991,6 +996,8 @@ impl TaskView {
             nav_back: Vec::new(),
             nav_forward: Vec::new(),
             navigating: false,
+            edits: Vec::new(),
+            edits_back: 0,
             visible: false,
             _new_pages: None,
             _poll: poll,

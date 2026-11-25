@@ -1200,6 +1200,25 @@ impl LspClient {
             .collect())
     }
 
+    /// The edit of a code action of a kind over the file, as
+    /// `source.organizeImports`: none when the server has none of it.
+    pub fn source_action(&self, uri: &str, kind: &str, range: lsp_types::Range) -> Result<Option<lsp_types::WorkspaceEdit>> {
+        self.wait_ready()?;
+        let params = json!({ "textDocument": { "uri": uri }, "range": range, "context": { "diagnostics": [], "only": [kind], "triggerKind": 1 } });
+        let value = self.raw_request("textDocument/codeAction", params)?;
+        let found = serde_json::from_value::<Option<Vec<lsp_types::CodeActionOrCommand>>>(value)?.unwrap_or_default();
+        // A server may answer with more than was asked for.
+        let of_kind = |action: &lsp_types::CodeAction| action.kind.as_ref().is_some_and(|k| k.as_str() == kind || k.as_str().starts_with(&format!("{kind}.")));
+        let Some(action) = found.into_iter().find_map(|action| match action {
+            lsp_types::CodeActionOrCommand::CodeAction(action) if of_kind(&action) => Some(action),
+            _ => None,
+        }) else {
+            return Ok(None);
+        };
+        let action = if action.edit.is_some() { action } else { self.resolve_code_action(uri, &action)? };
+        Ok(action.edit)
+    }
+
     /// codeAction/resolve: the edit of an action the server listed without one.
     pub fn resolve_code_action(&self, uri: &str, action: &lsp_types::CodeAction) -> Result<lsp_types::CodeAction> {
         self.wait_ready()?;

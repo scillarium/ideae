@@ -353,6 +353,11 @@ impl Render for Workspace {
                     task.update(cx, |t, cx| t.navigate(false, window, cx));
                 }
             }))
+            .on_action(cx.listener(|this, _: &task::LastEditLocation, window, cx| {
+                if let Some(task) = this.active_view() {
+                    task.update(cx, |t, cx| t.last_edit(window, cx));
+                }
+            }))
             .on_action(cx.listener(|this, a: &task::ShowSidePanel, window, cx| {
                 if let Some(task) = this.active_view() {
                     task.update(cx, |t, cx| t.show_side_panel(a.0, window, cx));

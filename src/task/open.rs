@@ -101,6 +101,13 @@ impl TaskView {
                 }
                 let Position { line, character } = editor.read(cx).cursor_position();
                 this.cursor_col = character;
+                if let Some(name) = &this.doc_shown {
+                    let cursor = editor.read(cx).cursor();
+                    if !(name.start..=name.end).contains(&cursor) {
+                        this.doc_shown = None;
+                        editor.update(cx, |state, cx| state.clear_hover_state(cx));
+                    }
+                }
                 // The popup of a change follows its line as the editor scrolls.
                 if line != this.cursor_line || this.change_popup.is_some() {
                     let moved = line != this.cursor_line;
@@ -174,6 +181,7 @@ impl TaskView {
             _marks: Task::ready(()),
             change_runs: Rc::default(),
             change_popup: None,
+            doc_shown: None,
             problems_seen: 0,
             signature: None,
             _signature: Task::ready(()),
@@ -246,11 +254,19 @@ impl TaskView {
         })
         .detach();
         // A click on the blame at the end of the cursor's line opens its commit.
-        cx.subscribe_in(&editor, window, |this, _, event: &InputEvent, window, cx| {
+        // Typed into, not reloaded from disk: a place for Last edit location.
+        let edited = path.clone();
+        cx.subscribe_in(&editor, window, move |this, editor, event: &InputEvent, window, cx| {
             if let InputEvent::InlayClick { id } = event
                 && let Some(hash) = id.strip_prefix(super::annotate::LINE_BLAME_ID)
             {
                 this.show_commit(hash, window, cx);
+            }
+            if let InputEvent::Change = event
+                && editor.read(cx).focus_handle(cx).is_focused(window)
+            {
+                let Position { line, character } = editor.read(cx).cursor_position();
+                this.record_edit(edited.clone(), line, character);
             }
         })
         .detach();

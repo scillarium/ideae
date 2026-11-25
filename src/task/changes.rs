@@ -43,7 +43,7 @@ pub struct ChangesView {
     pub(super) review_change: Option<(u32, bool)>,
 }
 
-actions!(ideae_review, [NextChange, PrevChange, NextChangedFile, PrevChangedFile, ToggleFileViewed, StageChange, RevertChange, CommentOnChange]);
+actions!(ideae_review, [NextChange, PrevChange, NextChangedFile, PrevChangedFile, ToggleFileViewed, StageChange, RevertChange, CommentOnChange, JumpToSource]);
 
 /// Lists the repository's branches, newest first, into `known`.
 pub(super) fn load_branches<T: 'static>(root: PathBuf, known: Rc<std::cell::RefCell<Vec<String>>>, cx: &mut Context<T>) {
@@ -405,8 +405,28 @@ impl ChangesView {
 
     pub(super) fn open_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(range) = self.selection.clone() else { return };
-        let path = self.root.join(range.path().as_ref());
-        let line = range.start().saturating_sub(1) as u32;
+        self.open_at(range.path().clone(), range.start().saturating_sub(1) as u32, window, cx);
+    }
+
+    /// F4, as JetBrains' Jump to Source: the file at the lines selected, else
+    /// at the change J/K came to, else at its top.
+    fn jump_to_source(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (path, line) = if let Some(range) = self.diff.read(cx).selected_lines() {
+            (range.path().clone(), range.start().saturating_sub(1) as u32)
+        } else if let Some(hunk) = self.review_hunk(cx).filter(|hunk| hunk.modified) {
+            (hunk.path.into(), hunk.line.saturating_sub(1))
+        } else if let Some(range) = self.selection.clone() {
+            (range.path().clone(), range.start().saturating_sub(1) as u32)
+        } else if let Some(file) = self.review_file(cx) {
+            (file, 0)
+        } else {
+            return;
+        };
+        self.open_at(path, line, window, cx);
+    }
+
+    fn open_at(&mut self, path: SharedString, line: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self.root.join(path.as_ref());
         let task = self.task.clone();
         window.defer(cx, move |window, cx| {
             let _ = task.update(cx, |task, cx| task.open_file(path, line, window, cx));
@@ -689,7 +709,8 @@ impl Render for ChangesView {
                                      {} / {}, {} / {}   the next / previous change\n\
                                      {} / {}   the next / previous file\n\
                                      {}   the file viewed, on to the next\n\
-                                     {} stage, {} revert, {} comment on the change",
+                                     {} stage, {} revert, {} comment on the change\n\
+                                     {}   the file, at the line",
                                     crate::keys::label("Ctrl+Click"),
                                     key("review_next_change"),
                                     key("review_prev_change"),
@@ -701,6 +722,7 @@ impl Render for ChangesView {
                                     key("review_stage"),
                                     key("review_revert"),
                                     key("review_comment"),
+                                    key("review_open_file"),
                                 ))
                                 .build(window, cx)
                             }),
@@ -728,6 +750,7 @@ impl Render for ChangesView {
                 .on_action(cx.listener(|this, _: &StageChange, window, cx| this.act_on_change(false, window, cx)))
                 .on_action(cx.listener(|this, _: &RevertChange, window, cx| this.act_on_change(true, window, cx)))
                 .on_action(cx.listener(|this, _: &CommentOnChange, window, cx| this.comment_on_change(window, cx)))
+                .on_action(cx.listener(|this, _: &JumpToSource, window, cx| this.jump_to_source(window, cx)))
                 .on_action(cx.listener(|this, _: &SendDiffToAgent, window, cx| this.send_selection(window, cx)))
                 .on_action(cx.listener(|this, _: &CommentOnDiff, window, cx| this.comment_selection(window, cx)))
                 .context_menu(|menu, _, _| {

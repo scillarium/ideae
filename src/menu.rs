@@ -465,7 +465,7 @@ thread_local! {
 /// menus to this list.
 const REACHED: &[&str] = &[
     "agent", "changes", "shell", "history", "changes_panel", "files_panel", "structure_panel", "run_panel", "database_panel", "focus_mode", "close_tab",
-    "reopen_tab", "back", "forward", "branches", "go_to_file", "go_to_symbol", "find_in_files", "replace_in_files",
+    "reopen_tab", "back", "forward", "last_edit", "branches", "go_to_file", "go_to_symbol", "find_in_files", "replace_in_files",
 ];
 
 /// The item's action, sent again once the window is up and the task has
@@ -874,6 +874,7 @@ fn menus(shown: Shown) -> Vec<Menu> {
             sep(),
             unkeyed("Back", "back", |t| t.back),
             unkeyed("Forward", "forward", |t| t.forward),
+            in_task("Last Edit Location", "last_edit"),
             sep(),
             when(true, key("Next Task Waiting for You", "next_waiting")),
             when(true, key("Recent Tasks and Files…", "recent")),

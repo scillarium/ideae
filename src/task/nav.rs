@@ -76,6 +76,38 @@ impl TaskView {
         cx.notify();
     }
 
+    /// Typing in a file: a place for Last edit location. Lines near the last
+    /// one are the same edit, as in JetBrains.
+    pub(super) fn record_edit(&mut self, path: PathBuf, line: u32, col: u32) {
+        self.edits_back = 0;
+        if let Some(NavPoint::File { path: last, line: last_line, col: last_col }) = self.edits.last_mut()
+            && *last == path
+            && last_line.abs_diff(line) <= 2
+        {
+            (*last_line, *last_col) = (line, col);
+            return;
+        }
+        self.edits.push(NavPoint::File { path, line, col });
+        if self.edits.len() > EDITS_KEPT {
+            self.edits.remove(0);
+        }
+    }
+
+    /// Ctrl+Shift+Backspace: where you typed last, then, pressed again, the
+    /// place before it. Back returns to where it was pressed.
+    pub fn last_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let here = self.nav_point(cx);
+        let found = self.edits.iter().rev().enumerate().skip(self.edits_back).find(|(_, point)| {
+            !here.as_ref().is_some_and(|h| h.same_place(point)) && self.nav_reachable(point)
+        });
+        let Some((back, NavPoint::File { path, line, col })) = found.map(|(back, point)| (back, point.clone())) else { return };
+        self.edits_back = back + 1;
+        self.record_nav(cx);
+        self.navigating = true;
+        self.open_file_at(path, line, col, window, cx);
+        self.navigating = false;
+    }
+
     pub fn cycle_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let in_pane = self.in_pane(self.current);
         let Some(current) = self.focused_ix().and_then(|ix| in_pane.iter().position(|&i| i == ix)) else { return };
