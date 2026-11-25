@@ -75,6 +75,17 @@ impl Render for DraggedMark {
 }
 
 impl RightPane {
+    /// The shortcut that shows it (Alt+1 to 5), told by Learn the keys.
+    pub(super) fn shortcut(self) -> &'static str {
+        match self {
+            RightPane::Changes => "changes_panel",
+            RightPane::Files => "files_panel",
+            RightPane::Structure => "structure_panel",
+            RightPane::Run => "run_panel",
+            RightPane::Database => "database_panel",
+        }
+    }
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             RightPane::Changes => "Changes",
@@ -301,9 +312,7 @@ impl TaskView {
                 .on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.peek_panel(hovered.then_some(pane), window, cx)))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.toggle_panel(pane, cx);
-                    if let Some(ix) = PANES.iter().position(|p| *p == pane) {
-                        crate::learn::used(["changes_panel", "files_panel", "structure_panel", "run_panel", "database_panel"][ix], window, cx);
-                    }
+                    crate::learn::used(pane.shortcut(), window, cx);
                 }))
                 .on_drag(DraggedMark(pane), |mark, _, _, cx| cx.new(|_| mark.clone()))
                 .context_menu(move |menu, _, _| {
@@ -568,6 +577,20 @@ mod tests {
         for name in ["house", "square-plus", "archive-restore", "archive", "git-branch-minus", "settings", "message-circle-question-mark"] {
             let path = format!("side-icons/{name}.svg");
             assert!(super::Assets.load(&path).ok().flatten().is_some(), "{path}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::{PANES, ShowSidePanel};
+
+    /// What Learn the keys tells of a panel's mark is the key that shows it.
+    #[test]
+    fn a_panel_s_shortcut_shows_that_panel() {
+        for (ix, pane) in PANES.iter().enumerate() {
+            let shortcut = crate::keymap::find(pane.shortcut()).expect("a shortcut in keymap.rs");
+            assert!(shortcut.action().partial_eq(&ShowSidePanel(ix)), "{} for {}", shortcut.id, pane.name());
         }
     }
 }

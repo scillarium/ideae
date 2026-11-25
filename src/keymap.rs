@@ -366,7 +366,11 @@ mod tests {
                 assert!(!shared || meant, "{} and {} are both on {}", a.id, b.id, a.default);
             }
         }
-        for s in SHORTCUTS.iter().filter(|s| s.scope == Everywhere && !s.default.is_empty()) {
+        // Meant to be over a terminal's own: the palette, as JetBrains' Find
+        // Action, works everywhere; the terminal's Select All (Ctrl+Shift+A on
+        // Linux and Windows) is seldom wanted.
+        const OVER_THE_TERMINAL: &[&str] = &["command_palette"];
+        for s in SHORTCUTS.iter().filter(|s| s.scope == Everywhere && !s.default.is_empty() && !OVER_THE_TERMINAL.contains(&s.id)) {
             let keys = super::keys::key(s.default);
             let binding = gpui_kit::KeyBinding::new(Box::leak(keys.into_boxed_str()), gpui_kit::NoAction, None);
             assert!(!terminal_binds(binding.keystrokes()), "{} takes a terminal's own key", s.id);

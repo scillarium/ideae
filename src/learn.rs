@@ -3,7 +3,7 @@
 //! says at the bottom which keys would have done it.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use gpui_kit::{Action, App, Window, component::{WindowExt as _, notification::Notification}};
 
@@ -12,8 +12,18 @@ use crate::{keymap, state};
 struct LearnKeys;
 
 thread_local! {
-    /// How often each shortcut was gone round, this run.
-    static TIMES: RefCell<HashMap<&'static str, u32>> = RefCell::default();
+    /// How often each shortcut was gone round, kept in the state.
+    static TIMES: RefCell<BTreeMap<String, u32>> = RefCell::default();
+}
+
+/// The counts of the last run, from the state.
+pub fn restore(counts: BTreeMap<String, u32>) {
+    TIMES.with_borrow_mut(|times| *times = counts);
+}
+
+/// The counts, for the state when it is written.
+pub fn counts() -> BTreeMap<String, u32> {
+    TIMES.with_borrow(Clone::clone)
 }
 
 /// Told by the menus of an action they sent: it is a shortcut's, or the
@@ -45,7 +55,7 @@ pub fn used(id: &'static str, window: &mut Window, cx: &mut App) {
         return;
     }
     let times = TIMES.with_borrow_mut(|times| {
-        let n = times.entry(id).or_default();
+        let n = times.entry(id.to_string()).or_default();
         *n += 1;
         *n
     });

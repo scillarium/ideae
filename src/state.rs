@@ -38,6 +38,9 @@ pub struct State {
     /// Agents tasks' agents started, by the ids they were given.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub crew: Vec<CrewRecord>,
+    /// How many times each shortcut was done without its keys (learn.rs).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub learn_counts: std::collections::BTreeMap<String, u32>,
 }
 
 /// One agent a task's agent started (workspace/crew.rs): a question

@@ -400,6 +400,7 @@ impl Workspace {
         theme::set_ligatures(saved.settings.ligatures, cx);
         theme::apply(appearance, window, cx);
         crate::lsp::POWER_SAVING.store(saved.power_saving, std::sync::atomic::Ordering::Relaxed);
+        crate::learn::restore(saved.learn_counts.clone());
         // A global: tests running alongside would flip it under edit.rs's test of it.
         if !cfg!(test) {
             gpui_kit::base::input::HUMP_WORDS.store(saved.settings.hump_words, std::sync::atomic::Ordering::Relaxed);
@@ -1089,6 +1090,7 @@ impl Workspace {
             active_task: self.active.clone(),
             zoom: crate::zoom::current(cx),
             crew: self.crew.records(),
+            learn_counts: crate::learn::counts(),
             projects: self
                 .projects
                 .iter()
