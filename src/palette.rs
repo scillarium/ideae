@@ -51,7 +51,11 @@ impl Entry {
     fn shortcut(label: &str, id: &str) -> Self {
         let shortcut = crate::keymap::find(id).expect("a shortcut in keymap.rs");
         let action: Rc<dyn Action> = Rc::from(shortcut.action());
-        let mut entry = Self::new(label.to_string(), move |window, cx| window.dispatch_action(action.boxed_clone(), cx));
+        let id = shortcut.id;
+        let mut entry = Self::new(label.to_string(), move |window, cx| {
+            window.dispatch_action(action.boxed_clone(), cx);
+            crate::learn::used(id, window, cx);
+        });
         entry.keys = crate::keymap::label(id).into();
         entry
     }

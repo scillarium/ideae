@@ -32,6 +32,7 @@ mod image_diff;
 mod picture;
 mod ide;
 mod keymap;
+mod learn;
 mod keys;
 mod local_time;
 mod lsp;

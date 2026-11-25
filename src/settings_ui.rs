@@ -649,6 +649,13 @@ fn pages(
         SettingPage::new("Keys").default_open(true)
             .description("Click a shortcut and press the new keys: Esc leaves them, Backspace removes them.")
             .default_open(true)
+            .group(SettingGroup::new().item(switch(
+                draft,
+                "Learn the keys",
+                "A command that has keys, chosen with the mouse (a menu, the command palette, a button), says at the bottom which keys do it, as JetBrains' Key Promoter.",
+                |s| s.learn_keys,
+                |s, v| s.learn_keys = v,
+            )))
             .groups(key_groups(draft, recording, catcher)),
         SettingPage::new("Spaces").default_open(true)
             .description("Projects sorted into sets (work, personal, a client); the window shows one set at a time. Switch with the mark at the right of the title bar.")

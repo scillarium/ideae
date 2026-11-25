@@ -205,7 +205,10 @@ impl TaskView {
                             .disabled(!self.git_can(GitCommand::Push))
                             .label(push_label)
                             .tooltip(push_tip)
-                            .on_click(cx.listener(|this, _, window, cx| this.git_command(GitCommand::Push, window, cx))),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.git_command(GitCommand::Push, window, cx);
+                                crate::learn::used("push", window, cx);
+                            })),
                     )
                     .child(
                         Button::new("pr")
@@ -639,12 +642,6 @@ impl TaskView {
                 this.side_selected = ix;
                 this.keyed = RightPane::Changes;
                 this.show_changed_file(path.clone(), window, cx);
-                // The keyboard stays on the list, as in JetBrains: arrows move, F4 opens the file.
-                if this.side_peek == Some(RightPane::Changes) {
-                    this.peek_focus.focus(window, cx);
-                } else {
-                    this.side_focus.focus(window, cx);
-                }
             }))
             .context_menu(move |menu, window, cx| {
                 use gpui_kit::component::menu::PopupMenuItem;

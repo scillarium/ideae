@@ -299,8 +299,15 @@ pub fn init(cx: &mut App) {
             });
         }
     });
+    // Context menus, and the menu bar where it is the app's own.
+    gpui_kit::component::menu::on_action_chosen(crate::learn::chosen);
     #[cfg(target_os = "macos")]
     {
+        let app = cx.to_async();
+        gpui_macos::on_menu_item_chosen(move |action| {
+            let action = action.boxed_clone();
+            let _ = app.update(|cx| in_window(cx, move |_, window, cx| crate::learn::chosen(&*action, window, cx)));
+        });
         let app = cx.to_async();
         gpui_macos::set_menu_hooks(
             move || app.update(refresh),

@@ -46,7 +46,7 @@ pub(crate) use window::*;
 
 pub use platform::MacPlatform;
 // ideae patch: the app tells each item's state when a menu opens.
-pub use platform::{MenuItemState, set_menu_hooks};
+pub use platform::{MenuItemState, on_menu_item_chosen, set_menu_hooks};
 
 trait BoolExt {
     fn to_objc(self) -> Bool;

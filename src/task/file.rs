@@ -890,15 +890,26 @@ impl FileView {
         );
     }
 
-    /// Ctrl+Alt+O: the language server's `source.organizeImports`.
+    /// Ctrl+Alt+O: the language server's `source.organizeImports`, over the whole file.
     pub(super) fn optimize_imports(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let end = {
+            let text = self.editor.read(cx).text();
+            text.offset_to_position(text.len())
+        };
         self.ask_server(
             window,
             cx,
-            |client, uri, pos| client.source_action(uri, "source.organizeImports", lsp_types::Range::new(lsp_types::Position::new(0, 0), pos)),
-            |this, edit, window, cx| match edit {
-                Some(edit) => this.apply_workspace_edit(&edit, window, cx, |_, _, _| {}),
-                None => window.push_notification(Notification::info("Imports are in order, or the language server does not order them."), cx),
+            move |client, uri, _| client.source_action(uri, "source.organizeImports", lsp_types::Range::new(lsp_types::Position::new(0, 0), end)),
+            |this, edits, window, cx| match edits {
+                None => window.push_notification(Notification::info("The language server does not optimize imports here."), cx),
+                Some(edits) if edits.iter().flat_map(lsp::edits_by_file).all(|(_, edits)| edits.is_empty()) => {
+                    window.push_notification(Notification::info("The imports are in order."), cx)
+                }
+                Some(edits) => {
+                    for edit in &edits {
+                        this.apply_workspace_edit(edit, window, cx, |_, _, _| {});
+                    }
+                }
             },
         );
     }

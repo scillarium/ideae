@@ -1200,9 +1200,11 @@ impl LspClient {
             .collect())
     }
 
-    /// The edit of a code action of a kind over the file, as
-    /// `source.organizeImports`: none when the server has none of it.
-    pub fn source_action(&self, uri: &str, kind: &str, range: lsp_types::Range) -> Result<Option<lsp_types::WorkspaceEdit>> {
+    /// The edits of a code action of a kind over the file, as
+    /// `source.organizeImports`: its own, then those its command asks for
+    /// (typescript-language-server's is a command); none when the server
+    /// offers no such action.
+    pub fn source_action(&self, uri: &str, kind: &str, range: lsp_types::Range) -> Result<Option<Vec<lsp_types::WorkspaceEdit>>> {
         self.wait_ready()?;
         let params = json!({ "textDocument": { "uri": uri }, "range": range, "context": { "diagnostics": [], "only": [kind], "triggerKind": 1 } });
         let value = self.raw_request("textDocument/codeAction", params)?;
@@ -1215,8 +1217,12 @@ impl LspClient {
         }) else {
             return Ok(None);
         };
-        let action = if action.edit.is_some() { action } else { self.resolve_code_action(uri, &action)? };
-        Ok(action.edit)
+        let action = if action.edit.is_some() || action.command.is_some() { action } else { self.resolve_code_action(uri, &action)? };
+        let mut edits: Vec<lsp_types::WorkspaceEdit> = action.edit.into_iter().collect();
+        if let Some(command) = &action.command {
+            edits.extend(self.execute_command(command)?.edits);
+        }
+        Ok(Some(edits))
     }
 
     /// codeAction/resolve: the edit of an action the server listed without one.

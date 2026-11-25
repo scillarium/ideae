@@ -1527,10 +1527,34 @@ extern "C-unwind" fn handle_menu_item(this: &AnyObject, _: Sel, item: *mut AnyOb
                 let action = action.boxed_clone();
                 drop(lock);
                 callback(&*action);
+                // ideae patch: an item chosen, not reached by its keys, is told.
+                let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+                let event: *mut AnyObject = msg_send![app, currentEvent];
+                let by_keys = !event.is_null() && {
+                    let kind: usize = msg_send![event, type];
+                    kind == 10 // NSEventTypeKeyDown
+                };
+                if !by_keys {
+                    MENU_CHOSEN.with_borrow_mut(|chosen| {
+                        if let Some(chosen) = chosen {
+                            chosen(&*action);
+                        }
+                    });
+                }
             }
             platform.0.lock().menu_command.get_or_insert(callback);
         }
     }
+}
+
+thread_local! {
+    static MENU_CHOSEN: std::cell::RefCell<Option<Box<dyn FnMut(&dyn Action)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// ideae patch: `f` is told of the action of a menu item chosen with the
+/// pointer (not by its keys), once the app has been sent it.
+pub fn on_menu_item_chosen(f: impl FnMut(&dyn Action) + 'static) {
+    MENU_CHOSEN.with_borrow_mut(|chosen| *chosen = Some(Box::new(f)));
 }
 
 /// ideae patch: an item's state, told by the app each time its menu is shown,

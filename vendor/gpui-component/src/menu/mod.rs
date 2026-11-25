@@ -11,7 +11,7 @@ pub use app_menu_bar::{AppMenuBar, MenuSource};
 pub use context_menu::{ContextMenu, ContextMenuExt, ContextMenuState, any_open as context_menu_open};
 pub use dropdown_menu::DropdownMenu;
 pub(crate) use menu_item::MenuItemElement;
-pub use popup_menu::{PopupMenu, PopupMenuItem};
+pub use popup_menu::{PopupMenu, PopupMenuItem, on_action_chosen};
 
 pub(crate) fn init(cx: &mut App) {
     app_menu_bar::init(cx);

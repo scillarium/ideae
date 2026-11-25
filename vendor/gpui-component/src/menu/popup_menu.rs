@@ -912,6 +912,10 @@ impl PopupMenu {
         }
 
         window.dispatch_action(action.boxed_clone(), cx);
+        // ideae patch: the app is told of an action chosen from a menu.
+        if let Some(chosen) = CHOSEN.with_borrow(Clone::clone) {
+            chosen(action.as_ref(), window, cx);
+        }
     }
 
     fn resolved_action_context(&self, cx: &App) -> Option<FocusHandle> {
@@ -1611,4 +1615,15 @@ mod tests {
         assert_eq!(PopupMenuItem::separator().a11y_label(), None);
         assert_eq!(PopupMenuItem::element(|_, _| div()).a11y_label(), None);
     }
+}
+
+type Chosen = std::rc::Rc<dyn Fn(&dyn Action, &mut Window, &mut App)>;
+
+thread_local! {
+    static CHOSEN: std::cell::RefCell<Option<Chosen>> = const { std::cell::RefCell::new(None) };
+}
+
+/// ideae patch: `f` is told of each action a menu item sends, after it is sent.
+pub fn on_action_chosen(f: impl Fn(&dyn Action, &mut Window, &mut App) + 'static) {
+    CHOSEN.with_borrow_mut(|chosen| *chosen = Some(std::rc::Rc::new(f)));
 }

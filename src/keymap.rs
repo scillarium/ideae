@@ -77,10 +77,11 @@ pub static SHORTCUTS: &[Shortcut] = &[
     shortcut!("back", "Back", "alt-left", NotInTerminal, task::NavigateBack),
     shortcut!("forward", "Forward", "alt-right", NotInTerminal, task::NavigateForward),
     shortcut!("last_edit", "Last edit location", "ctrl-shift-backspace", NotInTerminal, task::LastEditLocation),
-    // JetBrains' keys for Commit, Push and Update Project; a terminal keeps them (Cmd+K clears it).
+    // JetBrains' keys for Commit and Push; a terminal keeps them (Cmd+K clears it).
     shortcut!("commit", "Commit…", "ctrl-k", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Commit)),
     shortcut!("push", "Push", "ctrl-shift-k", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Push)),
-    shortcut!("pull", "Pull", "ctrl-t", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Pull)),
+    // No keys of its own: JetBrains' Ctrl+T is a slip from Ctrl+Shift+T (New task) away, and Pull changes the worktree.
+    shortcut!("pull", "Pull", "", NotInTerminalOrPage, crate::menu::Git(task::GitCommand::Pull)),
     shortcut!("focus_mode", "Focus mode", "shift-escape", Everywhere, task::ToggleZoom),
     shortcut!("save", "Save", "ctrl-s", App, task::SaveFile),
     shortcut!("definition", "Go to definition", "ctrl-b", Editor, gpui_kit::component::input::GoToDefinition),

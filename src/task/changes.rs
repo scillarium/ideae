@@ -409,20 +409,34 @@ impl ChangesView {
     }
 
     /// F4, as JetBrains' Jump to Source: the file at the lines selected, else
-    /// at the change J/K came to, else at its top.
+    /// at the change J/K came to, else at its first change. Not a file deleted.
     fn jump_to_source(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (path, line) = if let Some(range) = self.diff.read(cx).selected_lines() {
             (range.path().clone(), range.start().saturating_sub(1) as u32)
         } else if let Some(hunk) = self.review_hunk(cx).filter(|hunk| hunk.modified) {
             (hunk.path.into(), hunk.line.saturating_sub(1))
-        } else if let Some(range) = self.selection.clone() {
-            (range.path().clone(), range.start().saturating_sub(1) as u32)
         } else if let Some(file) = self.review_file(cx) {
-            (file, 0)
+            let first = self.hunks_in(&file).iter().map(|&i| &self.hunks[i]).find(|hunk| hunk.modified);
+            let line = first.map_or(0, |hunk| hunk.line.saturating_sub(1));
+            (file, line)
         } else {
             return;
         };
-        self.open_at(path, line, window, cx);
+        let deleted = self.diff.read(cx).files().iter().any(|f| *f.path() == path && f.status() == DiffFileStatus::Deleted);
+        if !deleted {
+            self.open_at(path, line, window, cx);
+        }
+    }
+
+    /// A file clicked in the Changes panel: the review keys and F4 go on from it.
+    pub(super) fn review_from(&mut self, path: SharedString, cx: &mut Context<Self>) {
+        self.review_file = Some(path.clone());
+        self.review_change = None;
+        match self.hunks_in(&path).first().map(|&i| self.hunks[i].clone()) {
+            Some(hunk) if !self.diff.read(cx).is_file_collapsed(&path) => self.select_change(&hunk, false, cx),
+            _ => self.diff.update(cx, |d, cx| d.set_current_lines(None, cx)),
+        }
+        cx.notify();
     }
 
     fn open_at(&mut self, path: SharedString, line: u32, window: &mut Window, cx: &mut Context<Self>) {

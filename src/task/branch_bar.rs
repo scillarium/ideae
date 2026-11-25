@@ -24,7 +24,8 @@ impl TaskView {
                             .tooltip("Back (Alt+Left, mouse Back)")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 cx.stop_propagation();
-                                this.navigate(true, window, cx)
+                                this.navigate(true, window, cx);
+                                crate::learn::used("back", window, cx);
                             })),
                     )
                     .child(
@@ -36,7 +37,8 @@ impl TaskView {
                             .tooltip("Forward (Alt+Right, mouse Forward)")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 cx.stop_propagation();
-                                this.navigate(false, window, cx)
+                                this.navigate(false, window, cx);
+                                crate::learn::used("forward", window, cx);
                             })),
                     ),
             )
@@ -193,7 +195,8 @@ impl TaskView {
                         })
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
-                            this.git_command(GitCommand::Pull, window, cx)
+                            this.git_command(GitCommand::Pull, window, cx);
+                            crate::learn::used("pull", window, cx);
                         })),
                 )
             })

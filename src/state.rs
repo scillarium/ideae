@@ -202,6 +202,8 @@ pub struct Settings {
     /// off, in the file's header.
     pub blame_at_line_end: bool,
     pub format_on_save: bool,
+    /// A command with keys, chosen with the pointer, says its keys (learn.rs).
+    pub learn_keys: bool,
     /// The worktrees agents make for themselves are listed, folded under
     /// the task they came from.
     pub show_side_worktrees: bool,
@@ -337,6 +339,7 @@ impl Default for Settings {
             blame_at_line_end: true,
             notices_at: "bottom-right".into(),
             format_on_save: false,
+            learn_keys: false,
             diff_unified: false,
             diff_ignore_whitespace: false,
             diff_files: false,

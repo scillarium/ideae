@@ -2281,6 +2281,7 @@ impl TaskView {
             state.set_file_collapsed(&path, false, cx);
             state.scroll_to_file(&path, cx);
         });
+        self.changes.update(cx, |changes, cx| changes.review_from(path, cx));
     }
 
 }

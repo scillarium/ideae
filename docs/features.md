@@ -362,8 +362,15 @@ one, Structure and Run of the lower, and a mark dragged to the other end of
 the strip moves its panel there. With nothing shown the strip is all there
 is of the side, and the pointer resting on a mark brings its panel over the
 task until it leaves.
-A file clicked in Changes shows its diff and leaves the keyboard on the list:
-arrows move, Enter shows the diff, F4 opens the file itself.
+A file clicked in Changes shows its diff, where the review keys (J/K, N/P, S,
+R, C) go on from it and F4 opens the file at its first change. With the
+keyboard in the list (Alt+1), arrows move, Enter shows the diff, F4 opens the
+file.
+
+Learn the keys (Settings → Keys), as JetBrains' Key Promoter: a command that
+has keys, chosen from a menu, a right-click menu, the command palette or a
+button (Push, Pull, Back, Forward, a panel's mark), says at the bottom right
+which keys do it, and how many times it was done without them.
 The Files panel and Go to file leave out what the system writes into folders
 for itself (.DS_Store, Thumbs.db, desktop.ini and the like); Changes still
 lists one git does not ignore.

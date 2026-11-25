@@ -299,7 +299,12 @@ impl TaskView {
                 })
                 .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
                 .on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.peek_panel(hovered.then_some(pane), window, cx)))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_panel(pane, cx)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.toggle_panel(pane, cx);
+                    if let Some(ix) = PANES.iter().position(|p| *p == pane) {
+                        crate::learn::used(["changes_panel", "files_panel", "structure_panel", "run_panel", "database_panel"][ix], window, cx);
+                    }
+                }))
                 .on_drag(DraggedMark(pane), |mark, _, _, cx| cx.new(|_| mark.clone()))
                 .context_menu(move |menu, _, _| {
                     let task = task.clone();
