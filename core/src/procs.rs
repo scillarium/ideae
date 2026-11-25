@@ -173,6 +173,10 @@ mod tests {
         // A stand-in for login(1): bash under that name, with sleep as its child.
         let login = dir.join("login");
         std::fs::copy("/bin/bash", &login).unwrap();
+        // A copy of a system binary keeps Apple's signature, which no longer
+        // fits it: macOS kills it at the start. Signed anew, it runs.
+        let signed = std::process::Command::new("codesign").args(["-s", "-", "-f"]).arg(&login).output().unwrap();
+        assert!(signed.status.success(), "codesign: {}", String::from_utf8_lossy(&signed.stderr));
         // A group of its own: the sleep goes with it at the end.
         let mut child = std::process::Command::new(&login).args(["-c", "sleep 30 & wait"]).process_group(0).spawn().unwrap();
         let mut told = None;
