@@ -110,6 +110,7 @@ More in [docs/features.md](docs/features.md); notes for each system in
 | Alt+F1 | Show the file in Files |
 | Ctrl+Shift+Backspace | Last edit location, again for the one before |
 | Ctrl+K / Ctrl+Shift+K / Ctrl+T | Commit / push / pull |
+| Ctrl+Alt+K | Every key (Settings → Keys) |
 | Ctrl+F4 / Ctrl+Shift+F4 | Close tab / reopen the last closed |
 | Shift+Esc | Focus mode |
 

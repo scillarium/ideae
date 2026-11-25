@@ -798,7 +798,7 @@ fn menus(shown: Shown) -> Vec<Menu> {
     let mut window = vec![act("Minimize", Minimize)];
     let mut help = vec![
         when(true, key("Command Palette…", "command_palette")),
-        when(true, act("Keyboard Shortcuts…", KeyboardShortcuts)),
+        when(true, key("Keyboard Shortcuts…", "keyboard_shortcuts")),
         sep(),
         act(format!("{app} Documentation"), Documentation),
     ];

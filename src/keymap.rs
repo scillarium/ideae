@@ -153,6 +153,8 @@ pub static SHORTCUTS: &[Shortcut] = &[
     // No keys of its own: a theme is seldom changed, and the menu has it.
     shortcut!("theme", "Switch theme", "", Everywhere, SwitchTheme),
     shortcut!("settings", "Settings", "ctrl-,", Everywhere, OpenSettings),
+    // K for keys: Ctrl+K is Commit's, Ctrl+Shift+A the palette's.
+    shortcut!("keyboard_shortcuts", "Keyboard shortcuts", "ctrl-alt-k", Everywhere, crate::menu::KeyboardShortcuts),
     shortcut!("quit", "Exit", "ctrl-q", Everywhere, Quit),
 ];
 
