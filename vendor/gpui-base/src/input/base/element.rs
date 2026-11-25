@@ -220,7 +220,9 @@ impl<M: InputModeKind> IntoElement for EditorScrollbar<M> {
 
 impl<M: InputModeKind> Element for EditorScrollbar<M> {
     type RequestLayoutState = ();
-    type PrepaintState = Option<AnyElement>;
+    /// ideae patch: with the line marks (what changed since the last commit)
+    /// on the track, where in the file they are, under the thumb.
+    type PrepaintState = Option<(AnyElement, Vec<(Bounds<Pixels>, gpui::Hsla)>)>;
 
     fn id(&self) -> Option<ElementId> {
         Some("editor-scrollbar".into())
@@ -259,6 +261,22 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
             return None;
         };
         let scroll_handle = state.scroll_handle.clone();
+        let marks = {
+            let track = snapshot.layout.bounds;
+            let rows = state.text.lines_len().max(1) as f32;
+            // The thumb's column: 6 px, 4 from the edge.
+            let (x, width) = (track.right() - px(10.), px(6.));
+            let y = |row: usize| track.top() + track.size.height * (row as f32 / rows);
+            state
+                .line_mark_runs
+                .iter()
+                .map(|(run, color)| {
+                    let top = y(run.start);
+                    let height = (y(run.end) - top).max(px(2.));
+                    (Bounds::new(point(x, top), size(width, height)), *color)
+                })
+                .collect::<Vec<_>>()
+        };
 
         if scroll_handle.offset() != snapshot.cursor_scroll_offset {
             scroll_handle.set_offset(snapshot.cursor_scroll_offset);
@@ -296,7 +314,7 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
             window,
             cx,
         );
-        Some(scrollbar)
+        Some((scrollbar, marks))
     }
 
     fn paint(
@@ -309,7 +327,10 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if let Some(scrollbar) = prepaint.as_mut() {
+        if let Some((scrollbar, marks)) = prepaint.as_mut() {
+            for (bounds, color) in marks.iter() {
+                window.paint_quad(gpui::fill(*bounds, *color));
+            }
             scrollbar.paint(window, cx);
         }
     }

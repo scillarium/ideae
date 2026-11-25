@@ -346,7 +346,8 @@ all: what is removed stays under `refs/ideae/variants` for two weeks.
   (whole, with a Copy), notices and dialogs are selected with the mouse; a row
   that is clicked (a commit, a task, a question, a tab, a stash, a declaration)
   has it in its right-click menu.
-- The gutter marks what differs from the last commit. A right click on the
+- The gutter marks what differs from the last commit, and so does the
+  scrollbar, for the whole file: a click there scrolls to it. A right click on the
   line numbers annotates the file with git blame. Bookmarks (F11) follow
   their text and are listed for the whole task (Shift+F11).
 - Find in files lists matches in code before those in comments and prose

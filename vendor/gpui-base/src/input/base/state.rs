@@ -149,6 +149,24 @@ pub struct LineMarks {
     pub gone_before: std::collections::HashMap<usize, gpui::Hsla>,
 }
 
+/// ideae patch: consecutive rows of one color as one run, in the order of
+/// the rows; a row something was removed before is an empty run there.
+fn mark_runs(marks: &LineMarks) -> Vec<(std::ops::Range<usize>, gpui::Hsla)> {
+    let mut rows: Vec<(usize, gpui::Hsla)> = marks.rows.iter().map(|(&row, &color)| (row, color)).collect();
+    rows.sort_by_key(|(row, _)| *row);
+    let mut runs: Vec<(std::ops::Range<usize>, gpui::Hsla)> = Vec::new();
+    for (row, color) in rows {
+        match runs.last_mut() {
+            Some((run, last)) if run.end == row && *last == color => run.end = row + 1,
+            _ => runs.push((row..row + 1, color)),
+        }
+    }
+    let mut gone: Vec<(usize, gpui::Hsla)> = marks.gone_before.iter().map(|(&row, &color)| (row, color)).collect();
+    gone.sort_by_key(|(row, _)| *row);
+    runs.extend(gone.into_iter().map(|(row, color)| (row..row, color)));
+    runs
+}
+
 /// ideae patch: words in code end at the humps of a camelCase name and at
 /// the underscores of a snake_case one, for moving, selecting and deleting
 /// by word.
@@ -574,6 +592,9 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) masked: bool,
     /// ideae patch: marks in the gutter, by buffer row (see [`LineMarks`]).
     pub(super) line_marks: std::rc::Rc<LineMarks>,
+    /// ideae patch: the marks as runs of rows of one color (`gone_before` as
+    /// empty ones), made when they are set: the scrollbar draws them each frame.
+    pub(super) line_mark_runs: std::rc::Rc<Vec<(std::ops::Range<usize>, gpui::Hsla)>>,
     /// ideae patch: the id of the clickable inlay under the pointer.
     pub(super) hovered_inlay: Option<SharedString>,
     /// ideae patch: notes and bookmarks in the gutter (see `gutter.rs`).
@@ -1081,6 +1102,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             text_align: TextAlign::Left,
             masked: false,
             line_marks: Default::default(),
+            line_mark_runs: Default::default(),
             hovered_inlay: None,
             gutter: Default::default(),
             sticky_scopes: Default::default(),
@@ -3734,6 +3756,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// ideae patch: replaces the gutter's marks.
     pub fn set_line_marks(&mut self, marks: LineMarks, cx: &mut Context<Self>) {
         if *self.line_marks != marks {
+            self.line_mark_runs = std::rc::Rc::new(mark_runs(&marks));
             self.line_marks = std::rc::Rc::new(marks);
             cx.notify();
         }
