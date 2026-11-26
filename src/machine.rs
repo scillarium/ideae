@@ -104,6 +104,9 @@ pub fn open(state: &mut State) -> u64 {
     }
     match open_at(state) {
         Ok((keeper, machine, note)) => {
+            if cfg!(test) {
+                eprintln!("DIAG open state={:?} note={note:?} rev={} store={:?}", state::state_path(), machine.rev, machine.projects.iter().map(|p| (&p.path, p.tasks.iter().map(|t| &t.path).collect::<Vec<_>>())).collect::<Vec<_>>());
+            }
             if note.is_some() {
                 *NOTE.lock().unwrap() = note;
             }
@@ -171,6 +174,13 @@ fn split(mut all: Machine) -> (Machine, std::collections::BTreeMap<String, Machi
 }
 
 fn sync_local(state: &mut State, taken_in: u64, aside: &[std::path::PathBuf], mut wanted: Machine) {
+    if cfg!(test) {
+        eprintln!(
+            "DIAG sync taken_in={taken_in} aside={aside:?} held={:?} wanted={:?}",
+            HELD.lock().unwrap().as_ref().map(|h| (h.id, h.taken_in, h.seen.projects.iter().map(|p| (&p.path, p.tasks.iter().map(|t| &t.path).collect::<Vec<_>>())).collect::<Vec<_>>())),
+            wanted.projects.iter().map(|p| (&p.path, p.tasks.iter().map(|t| &t.path).collect::<Vec<_>>())).collect::<Vec<_>>()
+        );
+    }
     // What it changed, worked out under the lock (in memory); the daemon asked out of it.
     let mut held = HELD.lock().unwrap();
     let Some(h) = held.as_mut() else { return };

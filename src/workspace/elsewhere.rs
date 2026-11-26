@@ -365,9 +365,25 @@ mod tests {
         cx.run_until_parked();
         let at = |name: &str| dir.join(name);
         let (a, b) = (at("a"), at("b"));
+        // DIAG (Windows CI): everything the window and the store hold before the other window's change.
+        eprintln!("DIAG temp_dir={:?} dir={:?} a={:?} exists(dir)={} TEMP={:?}", std::env::temp_dir(), dir, a, dir.exists(), std::env::var("TEMP"));
+        eprintln!("DIAG canonical dir={:?}", std::fs::canonicalize(&dir));
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            eprintln!("DIAG file {:?} {:?}", entry.path(), entry.metadata().map(|m| m.len()));
+        }
+        eprintln!("DIAG state.json {}", std::fs::read_to_string(dir.join("state.json")).unwrap_or_default());
+        eprintln!("DIAG machine.json {}", std::fs::read_to_string(dir.join("machine.json")).unwrap_or_default());
+        workspace.read_with(cx, |w, _| {
+            for p in &w.projects {
+                eprintln!("DIAG model project {:?}: {:?}", p.path, p.tasks.iter().map(|t| (&t.path, &t.branch, &t.title, t.main, t.busy.as_deref())).collect::<Vec<_>>());
+            }
+        });
+        crate::machine::as_another_window(|store| {
+            eprintln!("DIAG store {}", serde_json::to_string(&store.machine).unwrap_or_default());
+        });
         // The other window: a renamed and given a review note, b archived, c made.
         crate::machine::as_another_window(|store| {
-            let id = |store: &ideae_core::store::Store, path: &Path| store.task_at(path).unwrap().id;
+            let id = |store: &ideae_core::store::Store, path: &Path| store.task_at(path).unwrap_or_else(|| panic!("DIAG no task at {path:?}")).id;
             let fields = |v: serde_json::Value| v.as_object().unwrap().clone();
             let (ia, ib) = (id(store, &a), id(store, &b));
             store.apply(2, Op::SetTask { id: ia, fields: fields(serde_json::json!({ "title": "A by two", "work": { "review": [{ "text": "look", "line": 1 }] } })) }).unwrap();
