@@ -637,13 +637,23 @@ mod stray_tests {
         if !stand_in.exists() {
             std::fs::copy(&this, &stand_in).unwrap();
         }
-        Command::new(stand_in)
-            .args(["--exact", "procs::stray_tests::agent_with_a_background_sleep", "--ignored"])
-            .env(crate::agent::TASK_ENV, task)
-            .env(crate::agent::SOCK_ENV, socket)
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap()
+        // The copy just written is still open for writing in a child another
+        // test forked meanwhile, until that child execs: "Text file busy".
+        let started = std::time::Instant::now();
+        loop {
+            let spawned = Command::new(&stand_in)
+                .args(["--exact", "procs::stray_tests::agent_with_a_background_sleep", "--ignored"])
+                .env(crate::agent::TASK_ENV, task)
+                .env(crate::agent::SOCK_ENV, socket)
+                .stdout(std::process::Stdio::null())
+                .spawn();
+            match spawned {
+                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && started.elapsed() < std::time::Duration::from_secs(5) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                spawned => return spawned.unwrap(),
+            }
+        }
     }
 
     /// An agent of `task` and its sleep, once it has started it. One that

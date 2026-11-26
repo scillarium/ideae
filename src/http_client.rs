@@ -873,7 +873,14 @@ pub fn run(request: &Request, file_vars: &BTreeMap<String, String>, env: &BTreeM
         agent(ready.verify_tls)
     } else {
         let key = (place.root.to_path_buf(), place.env.unwrap_or_default().to_string(), ready.verify_tls);
-        AGENTS.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_insert_with(|| agent(ready.verify_tls)).clone()
+        let mut agents = AGENTS.lock().unwrap_or_else(|e| e.into_inner());
+        if !agents.contains_key(&key) {
+            // The cookies and globals of a task whose worktree is gone go with it.
+            let gone: Vec<PathBuf> = agents.keys().map(|(root, _, _)| root.clone()).filter(|root| !crate::hosts::is_remote(root) && !root.exists()).collect();
+            agents.retain(|(root, _, _), _| !gone.contains(root));
+            GLOBALS.lock().unwrap_or_else(|e| e.into_inner()).retain(|root, _| !gone.contains(root));
+        }
+        agents.entry(key).or_insert_with(|| agent(ready.verify_tls)).clone()
     };
     outcome.answer = send(&ready, &sender);
     if let (true, false, Ok(answer)) = (options.scripts, post.trim().is_empty(), &outcome.answer) {
@@ -1185,6 +1192,8 @@ X-Sig: {{{{sig}}}}
         let (requests, file_vars) = parse(&text);
         assert_eq!(requests.len(), 2);
         let scope = std::env::temp_dir().join(format!("ideae-http-chain-{}", std::process::id()));
+        // There: what is kept for a worktree that is gone is dropped.
+        std::fs::create_dir_all(&scope).unwrap();
         let env = BTreeMap::from([("secret".to_string(), "key".to_string())]);
         let first = run(&requests[0], &file_vars, &env, &here(&scope), &Options::default());
         assert!(!first.failed(), "{first:?}");
@@ -1198,6 +1207,7 @@ X-Sig: {{{{sig}}}}
         forget(&scope);
         let off = run(&requests[1], &file_vars, &env, &here(&scope), &Options { scripts: false, ..Default::default() });
         assert!(off.answer.unwrap_err().starts_with("Not set: token, sig"));
+        std::fs::remove_dir_all(&scope).unwrap();
     }
 
     #[test]
@@ -1317,17 +1327,22 @@ X-Sig: {{{{sig}}}}
         let text = format!("GET http://127.0.0.1:{port}/login\n\n###\nGET http://127.0.0.1:{port}/me\n\n###\n# @no-cookie-jar\nGET http://127.0.0.1:{port}/anonymous\n");
         let (requests, file_vars) = parse(&text);
         let root = std::env::temp_dir().join(format!("ideae-http-cookies-{}", std::process::id()));
+        // There: what is kept for a worktree that is gone is dropped.
+        std::fs::create_dir_all(&root).unwrap();
         let place = Place { dir: &root, root: &root, env: Some("dev"), unchecked: false };
         for request in &requests {
             assert!(!run(request, &file_vars, &BTreeMap::new(), &place, &Options::default()).failed());
         }
         assert_eq!(server.join().unwrap(), ["", "session=s-1", ""]);
         forget(&root);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn scripts_keep_what_they_set_as_it_was_and_beside_each_other() {
         let root = std::env::temp_dir().join(format!("ideae-http-kept-{}", std::process::id()));
+        // There: what is kept for a worktree that is gone is dropped.
+        std::fs::create_dir_all(&root).unwrap();
         let before = globals(&root);
         // Two runs that began from the same state: neither undoes the other.
         keep_globals(&root, &before, &BTreeMap::from([("token".to_string(), serde_json::json!("t"))]));
@@ -1339,5 +1354,6 @@ X-Sig: {{{{sig}}}}
         keep_globals(&root, &kept, &BTreeMap::from([("id".to_string(), serde_json::json!(42))]));
         assert_eq!(globals(&root).keys().collect::<Vec<_>>(), ["id"]);
         forget(&root);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -272,7 +272,6 @@ impl FileView {
         http._envs = cx.spawn(async move |this: WeakEntity<FileView>, cx| {
             let (envs, errors) = cx.background_spawn(async move { client::environments(&path, &root) }).await;
             let _ = this.update(cx, |this, cx| {
-                let path = this.path.clone();
                 let Some(http) = &mut this.http else { return };
                 // Until one is chosen, the first that is not the real thing:
                 // what is there is meant to be used, production only when asked for.
@@ -281,7 +280,6 @@ impl FileView {
                     let safe = |name: &&String| !client::is_production(name);
                     http.env = envs.names.iter().find(|name| matches!(name.as_str(), "dev" | "local" | "development")).or_else(|| envs.names.iter().find(safe)).cloned();
                 }
-                let _ = path;
                 http.envs = Rc::new(envs);
                 http.env_errors = errors;
                 cx.notify();
@@ -364,12 +362,13 @@ impl FileView {
                     return;
                 }
                 let (file_vars, env, dir, scope, env_name) = (file_vars.clone(), env.clone(), dir.clone(), scope.clone(), env_name.clone());
-                let outcome = cx
-                    .background_spawn(async move {
-                        let place = client::Place { dir: &dir, root: &scope, env: env_name.as_deref(), unchecked };
-                        client::run(&request, &file_vars, &env, &place, &options)
-                    })
-                    .await;
+                // On a thread of its own, not the shared pool: a request waits
+                // up to its timeout, and goes on after Stop.
+                let outcome = crate::procs::on_thread(move || {
+                    let place = client::Place { dir: &dir, root: &scope, env: env_name.as_deref(), unchecked };
+                    client::run(&request, &file_vars, &env, &place, &options)
+                })
+                .await;
                 let failed = outcome.failed();
                 refused += usize::from(outcome.answer.as_ref().is_ok_and(|answer| answer.status >= 400));
                 done += 1;
@@ -568,10 +567,9 @@ impl FileView {
         let busy = http.running.is_some();
         let names = http.envs.names.clone();
         let chosen = http.env.clone();
-        let env_label = match (&chosen, names.is_empty()) {
-            (Some(env), _) => format!("Env: {env} ▾"),
-            (None, true) => "No environment ▾".to_string(),
-            (None, false) => "No environment ▾".to_string(),
+        let env_label = match &chosen {
+            Some(env) => format!("Env: {env} ▾"),
+            None => "No environment ▾".to_string(),
         };
         let files: Vec<PathBuf> = http.envs.files.clone();
         let (root, dir) = (self.root.clone(), self.path.parent().map(std::path::Path::to_path_buf));
