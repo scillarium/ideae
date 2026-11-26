@@ -27,6 +27,7 @@ src/task/          one task, a module: what is private to it is seen by all of i
   agent_tab.rs     the task's agents (its own and its questions', `Who`, `AgentState`): what is sent to them, their restart, queued prompts
   activity.rs      the status of an agent that reports little, guessed from its terminal
   open.rs          opening a file and giving it its language server
+  http.rs          a `.http` file that sends its requests: Run and the environment over its text, the answer under it; the HTTP panel
   sql.rs           a `.sql` or `.redis` file that runs: its line of connection and database, Output, results, transactions, export, filter and pages, editing a cell
   sql_grid.rs      a result's typed rows for the table
   sql_schema.rs    its Schema tab and the editor's completions from it
@@ -137,6 +138,9 @@ src/desktop.rs     launcher entry, dash pin, restart, `--install` / `--uninstall
 src/predict/       edit prediction: llama-server and a model downloaded on consent, run for the app, ghost text at the cursor;
                    tests and UI checks use local files: IDEAE_PREDICT_SERVER, IDEAE_PREDICT_MODEL (IDEAE_DEBUG_PREDICT logs misses; IDEAE_PREDICT_GHOST="text" shows that as the suggestion, for screenshots)
 src/naming.rs      branch names from task titles
+src/http_client.rs `.http` files (JetBrains' open format): requests parsed, env files and variables, a request run with its scripts, sent with ureq; no gpui
+src/http_script.rs their JavaScript (`< {% %}`, `> {% %}`) in Boa: client, request, response, crypto; no files, no network
+src/http_port.rs   requests in and out: a curl command or a Postman collection as `.http` text, a file as a Postman collection
 src/digest.rs      what of a long output (a check's, a CI log) an agent reads: the errors, each once, and the end
 src/services.rs    `.ideae.toml` services (Run ▾): per-task port slots, IDEAE_PORT_<NAME>
 src/project_config.rs  `.ideae.toml` [task] (setup, teardown, check, copy), your own over the file, suggestions, runs

@@ -100,6 +100,7 @@ mod term;
 mod chat;
 mod file;
 mod preview;
+mod http;
 mod sql;
 mod sql_dialog;
 mod sql_guard;
@@ -132,6 +133,7 @@ pub use changes::*;
 pub use session::*;
 pub use annotate::ToggleBlame;
 pub use preview::{CycleLook, PREVIEW_CONTEXT};
+pub use http::{HTTP_INPUT_CONTEXT, RunAllRequests, RunRequest};
 pub use sql::{RunFile, RunStatement, SQL_INPUT_CONTEXT, SqlDefinition, StopStatement};
 pub use sql_dialog::{bastion_dialog, connection_dialog, import_dialog};
 pub use sql_guard::{lock_now, production_gate};
@@ -172,7 +174,7 @@ pub struct TabsState {
     pub front: Option<FrontTab>,
     /// The side panels in view, by their place in the order of their keys:
     /// none in focus mode, or of a narrow window's hidden side.
-    pub panels: [bool; 5],
+    pub panels: [bool; 6],
 }
 
 /// The tabs the menu bar names, when one is in front.
@@ -358,6 +360,8 @@ pub(crate) enum RightPane {
     Run,
     /// The connections, their databases and tables.
     Database,
+    /// The project's `.http` files and the requests this task sent.
+    Http,
 }
 
 const NAV_LIMIT: usize = 100;
@@ -662,6 +666,10 @@ pub struct TaskView {
     tree_stale: bool,
     /// The same list for definition lookups running off the UI thread.
     shared_files: Arc<std::sync::RwLock<Arc<Vec<String>>>>,
+    /// The project's `.http` files, for the HTTP panel.
+    http_files: Rc<Vec<SharedString>>,
+    /// The requests this task sent, the last first.
+    http_sent: Rc<Vec<http::SentLine>>,
     expanded: HashSet<SharedString>,
     /// The tree's colors: what git says of each changed file and folder.
     tree_marks: Rc<HashMap<String, Mark>>,
@@ -1071,6 +1079,8 @@ impl TaskView {
             tree_files: Arc::default(),
             tree_stale: false,
             shared_files: Arc::default(),
+            http_files: Rc::default(),
+            http_sent: Rc::default(),
             expanded: HashSet::new(),
             tree_marks: Rc::default(),
             tree_ignored: Rc::default(),
@@ -2286,7 +2296,7 @@ impl TaskView {
         let len = match self.keyed {
             RightPane::Changes => self.files.len(),
             RightPane::Structure => self.structure_items(cx).len(),
-            RightPane::Files | RightPane::Run | RightPane::Database => return,
+            RightPane::Files | RightPane::Run | RightPane::Database | RightPane::Http => return,
         };
         match event.keystroke.key.as_str() {
             "down" if len > 0 => self.side_selected = (self.side_selected + 1).min(len - 1),

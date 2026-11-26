@@ -251,6 +251,12 @@ pub struct Settings {
     pub format_on_save: bool,
     /// A command with keys, chosen with the pointer, says its keys (learn.rs).
     pub learn_keys: bool,
+    /// `.http` files: seconds a request may take, whether it follows
+    /// redirects, checks the server's certificate and runs its scripts.
+    pub http_timeout_secs: u32,
+    pub http_follow_redirects: bool,
+    pub http_verify_tls: bool,
+    pub http_scripts: bool,
     /// The worktrees agents make for themselves are listed, folded under
     /// the task they came from.
     pub show_side_worktrees: bool,
@@ -410,6 +416,10 @@ impl Default for Settings {
             notices_at: "bottom-right".into(),
             format_on_save: false,
             learn_keys: false,
+            http_timeout_secs: 60,
+            http_follow_redirects: true,
+            http_verify_tls: true,
+            http_scripts: true,
             diff_unified: false,
             diff_ignore_whitespace: false,
             diff_files: false,

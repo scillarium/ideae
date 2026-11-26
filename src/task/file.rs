@@ -77,6 +77,8 @@ pub struct FileView {
     /// A `.sql` file's connection and results. Not in `preview`, whose task
     /// each edit replaces: typing must not stop a query.
     pub(super) sql: Option<super::sql::SqlFile>,
+    /// A `.http` file's environment and answers.
+    pub(super) http: Option<super::http::HttpFile>,
     /// Git ignores it: while presenting it is not shown until asked for.
     pub(super) veiled: bool,
     /// The text whose next occurrence was added to the selection last,
@@ -1130,6 +1132,8 @@ impl Render for FileView {
             .on_action(cx.listener(|this, _: &super::sql::ShowTableData, window, cx| this.show_table_data(window, cx)))
             .on_action(cx.listener(|this, _: &super::sql::ShowTableDefinition, _, cx| this.show_ddl_at_cursor(cx)))
             .on_action(cx.listener(|this, _: &super::sql::StopStatement, _, cx| this.stop_statement(cx)))
+            .on_action(cx.listener(|this, _: &super::http::RunRequest, window, cx| this.run_request(window, cx)))
+            .on_action(cx.listener(|this, _: &super::http::RunAllRequests, window, cx| this.run_all_requests(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleBookmark, _, cx| this.toggle_bookmark(cx)))
             .on_action(cx.listener(|this, _: &NextBookmark, window, cx| this.go_to_bookmark(false, window, cx)))
             .on_action(cx.listener(|this, _: &PrevBookmark, window, cx| this.go_to_bookmark(true, window, cx)))
@@ -1285,9 +1289,10 @@ impl Render for FileView {
                 let kind = self.preview_kind();
                 let share = kind.filter(|_| look == super::preview::Look::Split).map(super::preview::split_share);
                 let is_sql = self.sql.is_some();
-                let sql_share = self.sql_panel_open().then(super::sql::text_share);
-                let sql_results = self.render_sql_results(cx);
-                this.children(self.render_sql_bar(cx))
+                let is_http = self.http.is_some();
+                let sql_share = (self.sql_panel_open() || self.http_panel_open()).then(super::sql::text_share);
+                let sql_results = self.render_sql_results(cx).or_else(|| self.render_http_results(cx));
+                this.children(self.render_sql_bar(cx)).children(self.render_http_bar(cx))
                 .child(h_flex().id("file-split").test_support().flex_1().min_h_0().items_stretch()
                 .when(sql_share.is_some(), |split| split.flex_col())
                 .on_drag_move(cx.listener(|this, event: &DragMoveEvent<super::preview::SplitDrag>, _, cx| this.drag_split(event, cx)))
@@ -1297,6 +1302,7 @@ impl Render for FileView {
                     .id("file-editor")
                     .test_support()
                     .when(is_sql, |editor| editor.key_context(super::sql::SQL_CONTEXT))
+                    .when(is_http, |editor| editor.key_context(super::http::HTTP_CONTEXT))
                     .relative()
                     .flex_1()
                     .when_some(share, |editor, share| editor.flex_none().w(relative(share)))
@@ -1321,7 +1327,7 @@ impl Render for FileView {
                     Editor::new(&self.editor)
                         // Replaces the built-in menu, so its items are listed again.
                         .context_menu({
-                            let (editor, annotating, sql_file, server) = (self.editor.clone(), self.annotate, self.sql.is_some(), self.lsp_client.is_some());
+                            let (editor, annotating, sql_file, server, http_file) = (self.editor.clone(), self.annotate, self.sql.is_some(), self.lsp_client.is_some(), self.http.is_some());
                             move |menu, _, cx| {
                             let icon = crate::sidebar::menu_icon;
                             // On the line numbers: what is about the lines.
@@ -1331,6 +1337,7 @@ impl Render for FileView {
                             }
                             use gpui_kit::component::input::{Copy, Cut, GoToDefinition, Paste, SelectAll, ToggleCodeActions};
                             let fixes = editor.read(cx).context_menu_capabilities().has_code_actions();
+                            let menu = if http_file { menu.menu_with_icon("Run request", icon("play"), Box::new(super::http::RunRequest)).separator() } else { menu };
                             // What a name is in SQL: there are no implementations to list.
                             let menu = if sql_file {
                                 menu.menu_with_icon("Run", icon("play"), Box::new(super::sql::RunStatement))

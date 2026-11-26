@@ -175,6 +175,7 @@ impl TaskView {
             lsp_unlicensed: false,
             preview: Default::default(),
             sql: super::sql::is_sql(&path).then(|| super::sql::SqlFile::new(&path)),
+            http: super::http::is_http(&path).then(|| super::http::HttpFile::new(&path)),
             veiled,
             occurrence: None,
             committed: None,
@@ -237,13 +238,14 @@ impl TaskView {
         if let Some(look) = asked.or(remembered) {
             file.update(cx, |f, cx| f.set_look(look, cx));
         }
+        file.update(cx, |f, cx| f.load_http_envs(cx));
         // The tab label shows whether the file has unsaved edits.
         // The cursor moving a line is the file's own to draw, except for the
         // Structure panel, which marks where it is.
         cx.observe(&file, |this, file, cx| {
             let dirty = file.read(cx).dirty;
             // A file with a query under way is not replaced by the next one opened.
-            let held = dirty || file.read(cx).sql_busy() || file.read(cx).sql_holds(cx);
+            let held = dirty || file.read(cx).sql_busy() || file.read(cx).http_busy() || file.read(cx).sql_holds(cx);
             let structure = this.panel_shown(RightPane::Structure);
             let Some(tab) = this.tabs.iter_mut().find(|t| matches!(&t.kind, TabKind::File(f) if *f == file)) else { return };
             let follows = structure && this.structure_file == Some(tab.id);

@@ -412,8 +412,8 @@ all: what is removed stays under `refs/ideae/variants` for two weeks.
 ## The side
 
 A strip at the window's right edge has a mark for each panel: Changes,
-Files, Structure, Run, Database (Alt+1 to 5). A click shows or hides a panel. The
-side has two halves, a panel in each: Changes, Files and Database are of the upper
+Files, Structure, Run, Database, HTTP (Alt+1 to 6). A click shows or hides a panel. The
+side has two halves, a panel in each: Changes, Files, Database and HTTP are of the upper
 one, Structure and Run of the lower, and a mark dragged to the other end of
 the strip moves its panel there. With nothing shown the strip is all there
 is of the side, and the pointer resting on a mark brings its panel over the
@@ -433,6 +433,82 @@ it was done without them.
 The Files panel and Go to file leave out what the system writes into folders
 for itself (.DS_Store, Thumbs.db, desktop.ini and the like); Changes still
 lists one git does not ignore.
+
+## HTTP requests
+
+A `.http` (or `.rest`) file holds requests as JetBrains' HTTP Client writes
+them: the format is its open specification (JetBrains'
+http-request-in-editor-spec, CC BY 4.0); no code or drawing of theirs is in
+the app. `###` parts the requests, a request line (`POST {{host}}/users`,
+`GET` when there is no method), headers, a blank line and the body; `< ./file`
+puts a file of the project in the body (in a `multipart/form-data` body the
+lines are parted as a form's are), `# @name`, `# @no-redirect`,
+`# @no-cookie-jar`, `# @timeout 30` (`600 ms`, `2 m`; `@readTimeout` too) and
+`# @connection-timeout 5` say more of a request. Ctrl+Enter (▶ Run over the
+text, or the right-click menu) sends the one the cursor is in, off the
+window's thread; Ctrl+Shift+Enter (Run all) sends every request of the file
+in its order and stops at the first that fails. An answer comes under the
+text: the status, how long it took, its size, the body (JSON laid out and
+colored, with the editor's search), the headers, the request as it went and
+what its scripts tested, with Copy and Copy as curl. The file keeps its last
+50 answers, 64 MB of them at most. Compressed answers (gzip, brotli) are
+read as what they hold.
+
+`{{name}}` comes from the environment chosen over the text (Env ▾), read from
+every `http-client.env.json` and `http-client.private.env.json` from the
+project's root down to the file's folder (a nearer file over a farther, the
+private one over the other, `$shared` in every environment), from what a
+script kept, or from a line `@name = value` of the file. A value that is an
+object is read by its path (`{{card.id}}`, `{{users.0.name}}`). `{{$uuid}}`,
+`{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$randomInt}}`,
+`{{$random.integer(1, 10)}}`, `{{$random.alphanumeric(8)}}` and
+`{{$env.NAME}}` are made for each request. A request with a name in its URL or
+headers that nothing set is not sent, and the answer says which; in a body
+such a name goes as written (it may be the body's own template).
+`Authorization: Basic user password` is encoded.
+
+Cookies an answer sets go with the requests after it, kept for the project
+and the environment until the app is closed; `# @no-cookie-jar` over a
+request sends none and keeps none.
+
+An environment that is production by its name (`prod…`, `live…`) is red over
+the text, is never the one chosen by itself, and a request goes there only
+after production is unlocked, with the same lock as the databases'.
+A server's certificate is checked, except where an environment's
+`"SSLConfiguration": {"verifyHostCertificate": false}` in the private file
+says not to, and for this machine's and a private network's hosts when
+Settings says so. A redirect to another host does not take `Authorization`
+along.
+
+Scripts are JavaScript, run in an engine of the app's own (Boa) with the part
+of JetBrains' API such scripts use: `< {% … %}` or `< file.js` before a
+request (`request.variables.set`, `request.environment.get`,
+`crypto.hmac.sha256()` and the other digests, for a signature), `> {% … %}`
+or `> file.js` on its answer (`client.test`, `client.assert`, `client.log`,
+`response.status`, `response.body`, `response.headers`), and
+`client.global.set`/`get`, kept for the project until the app is closed, which
+is how one request hands a token to the next. A script reads the request, the
+answer and the environment, and nothing else: no files, no network; a loop
+that never ends is stopped. Tests show as `Tests 2/3` over the answer, red
+when one failed. `>> file` (an answer saved to a file), `import`, `run` and
+requests that are not HTTP (gRPC, WebSocket) are not done, and the answer
+says so.
+
+Import / Export ▾ over the text: a curl command in the clipboard becomes a
+request of the file; the request at the cursor is copied as curl without
+being sent; the file is written as a Postman collection (v2.1; scripts stay
+behind, Postman's are another API). The HTTP panel imports too: a curl
+command into `imported.http` (said when it brought a key or a cookie along),
+a Postman collection into `.http` files under `http/`, one for each of its
+top folders, never over a file already there.
+
+Settings → HTTP Client: how long a request may take, whether redirects are
+followed, whether local hosts' certificates are checked, whether scripts run.
+
+The HTTP panel (Alt+6) lists the project's `.http` files and the requests
+this task sent, the last first (without their queries: a token is often
+there), each opening its file at the request; + makes a new file with two
+requests to start from. While presenting, a request as it went is not shown.
 
 ## Git
 

@@ -708,6 +708,8 @@ fn pages(
             ),
         databases_page(),
         crate::layers_ui::integrations_page(draft, layers),
+        // Last: the pages before it are opened by their place (`INTEGRATIONS_PAGE`).
+        http_page(draft),
     ]
 }
 
@@ -768,6 +770,45 @@ fn browser_page(draft: &Draft, layers: &LayersDraft) -> SettingPage {
                     "A task of a project on another machine gives its agent IDEAE_BROWSER_CDP, and the task's Chrome here is reached at that port there for as long as the task is open. Only your user's processes there get through, and that machine's root: turn it on only for machines whose root you trust, or on for a space or a project of them alone. Tasks opened after the change.",
                 ))
             }))
+}
+
+/// How `.http` files send their requests.
+fn http_page(draft: &Draft) -> SettingPage {
+    let timeout = {
+        let (read, write) = (draft.clone(), draft.clone());
+        SettingField::number_input(NumberFieldOptions { min: 1., max: 3600., step: 5. }, move |_| f64::from(read.borrow().http_timeout_secs), move |value, _| {
+            write.borrow_mut().http_timeout_secs = value as u32
+        })
+        .default_value(f64::from(state::Settings::default().http_timeout_secs))
+    };
+    SettingPage::new("HTTP Client")
+        .default_open(true)
+        .description("Requests in .http files, as JetBrains' HTTP Client writes them. Environments are in http-client.env.json beside the files, secrets in http-client.private.env.json.")
+        .group(
+            SettingGroup::new()
+                .item(SettingItem::new("Give up after (seconds)", timeout).description("How long a request may take. A line `# @timeout 120` over a request is its own."))
+                .item(switch(
+                    draft,
+                    "Follow redirects",
+                    "A 301 or 302 is followed to where it points, up to ten times. Off, or with `# @no-redirect` over a request, the redirect itself is the answer.",
+                    |s| s.http_follow_redirects,
+                    |s, v| s.http_follow_redirects = v,
+                ))
+                .item(switch(
+                    draft,
+                    "Check the certificates of local hosts",
+                    "Turn it off for a stand on this machine or a private network that signs its own certificate (localhost, *.localhost, *.local, *.test, 10.x, 192.168.x). Any other host's certificate is checked whatever this says; for one of those, an environment's \"SSLConfiguration\": {\"verifyHostCertificate\": false} in http-client.private.env.json turns the check off for that environment alone.",
+                    |s| s.http_verify_tls,
+                    |s, v| s.http_verify_tls = v,
+                ))
+                .item(switch(
+                draft,
+                "Run a request's JavaScript",
+                "`< {% … %}` before a request and `> {% … %}` on its answer: tests, values kept for the next request (client.global), signatures (crypto). A script reads the request, the answer and the environment, and nothing else: no files, no network.",
+                |s| s.http_scripts,
+                |s, v| s.http_scripts = v,
+            )),
+        )
 }
 
 /// The connections `.sql` files run against. Kept apart from the settings

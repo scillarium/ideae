@@ -3,7 +3,7 @@ use super::*;
 // ---------------------------------------------------------------- the side
 
 /// The panels of the side, in the order of their keys.
-pub(super) const PANES: [RightPane; 5] = [RightPane::Changes, RightPane::Files, RightPane::Structure, RightPane::Run, RightPane::Database];
+pub(super) const PANES: [RightPane; 6] = [RightPane::Changes, RightPane::Files, RightPane::Structure, RightPane::Run, RightPane::Database, RightPane::Http];
 
 /// How wide the strip of their marks is, at the window's edge.
 const STRIP: f32 = 38.;
@@ -83,6 +83,7 @@ impl RightPane {
             RightPane::Structure => "structure_panel",
             RightPane::Run => "run_panel",
             RightPane::Database => "database_panel",
+            RightPane::Http => "http_panel",
         }
     }
 
@@ -93,6 +94,7 @@ impl RightPane {
             RightPane::Structure => "Structure",
             RightPane::Run => "Run",
             RightPane::Database => "Database",
+            RightPane::Http => "HTTP",
         }
     }
 
@@ -104,6 +106,7 @@ impl RightPane {
             RightPane::Structure => "side-icons/list-tree.svg",
             RightPane::Run => "side-icons/play.svg",
             RightPane::Database => "side-icons/database.svg",
+            RightPane::Http => "side-icons/send.svg",
         };
         svg().path(drawing).size(px(18.)).flex_none().text_color(color)
     }
@@ -115,6 +118,7 @@ impl RightPane {
             RightPane::Structure => "structure_panel",
             RightPane::Run => "run_panel",
             RightPane::Database => "database_panel",
+            RightPane::Http => "http_panel",
         }
     }
 }
@@ -408,6 +412,7 @@ impl TaskView {
             ],
             RightPane::Run => Vec::new(),
             RightPane::Database => self.db_panel_tools(cx),
+            RightPane::Http => self.http_panel_tools(cx),
         }
     }
 
@@ -494,6 +499,7 @@ impl TaskView {
         match pane {
             RightPane::Run => panel.child(self.render_run_panel(cx)),
             RightPane::Database => panel.child(self.render_db_panel(cx)),
+            RightPane::Http => panel.child(self.render_http_panel(cx)),
             RightPane::Files => panel.child(self.render_tree(cx)),
             RightPane::Structure => panel.child(self.render_structure(cx)),
             RightPane::Changes => panel.child(self.render_change_lists(cx)).child(self.render_commit_box(cx)),

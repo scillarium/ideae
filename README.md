@@ -104,7 +104,8 @@ More in [docs/features.md](docs/features.md); notes for each system in
 | Ctrl+F12 | File structure |
 | F2 / Shift+F2 | Next / previous problem |
 | F11 / Shift+F11 | Bookmark the line / the task's bookmarks |
-| Alt+1 / 2 / 3 / 4 / 5 | Changes / Files / Structure / Run / Database panel |
+| Alt+1 / 2 / 3 / 4 / 5 / 6 | Changes / Files / Structure / Run / Database / HTTP panel |
+| Ctrl+Enter / Ctrl+Shift+Enter | In a `.http` file: send the request at the cursor / every request of the file |
 | F4 | In Changes, the diff or the list: open the file (at the line) |
 | F1 / Ctrl+Alt+O | Quick documentation / optimize imports |
 | Alt+F1 | Show the file in Files |

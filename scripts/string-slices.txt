@@ -9,6 +9,7 @@ src/db/statement.rs 5
 src/edit.rs 16
 src/finder.rs 6
 src/git.rs 6
+src/http_client.rs 6
 src/indent.rs 3
 src/integrations/gitlab.rs 1
 src/integrations/tickets.rs 1

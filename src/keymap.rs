@@ -29,6 +29,8 @@ enum Scope {
     Picture,
     /// The editor of a `.sql` file, over what the same keys do in any editor.
     Sql,
+    /// The editor of a `.http` file, the same way.
+    Http,
 }
 
 pub struct Shortcut {
@@ -70,6 +72,7 @@ pub static SHORTCUTS: &[Shortcut] = &[
     shortcut!("structure_panel", "Structure panel", "alt-3", Everywhere, task::ShowSidePanel(2)),
     shortcut!("run_panel", "Run panel", "alt-4", Everywhere, task::ShowSidePanel(3)),
     shortcut!("database_panel", "Database panel", "alt-5", Everywhere, task::ShowSidePanel(4)),
+    shortcut!("http_panel", "HTTP panel", "alt-6", Everywhere, task::ShowSidePanel(5)),
     shortcut!("next_tab", "Next tab", "ctrl-pagedown", Everywhere, task::NextTab),
     shortcut!("prev_tab", "Previous tab", "ctrl-pageup", Everywhere, task::PrevTab),
     shortcut!("close_tab", "Close tab", "ctrl-f4", Everywhere, task::CloseTab),
@@ -132,6 +135,8 @@ pub static SHORTCUTS: &[Shortcut] = &[
     shortcut!("sql_run_file", "Run the whole SQL file", "ctrl-shift-enter", Sql, task::RunFile),
     shortcut!("sql_definition", "SQL: definition, alias or schema", "ctrl-b", Sql, task::SqlDefinition),
     shortcut!("sql_stop", "Stop the SQL statement", "ctrl-f2", Sql, task::StopStatement),
+    shortcut!("http_run", "Send the HTTP request", "ctrl-enter", Http, task::RunRequest),
+    shortcut!("http_run_all", "Send every HTTP request of the file", "ctrl-shift-enter", Http, task::RunAllRequests),
     shortcut!("parameter_info", "Parameter info", "ctrl-p", Editor, task::ParameterInfo),
     shortcut!("quick_doc", "Quick documentation", "f1", Editor, task::QuickDocumentation),
     shortcut!("optimize_imports", "Optimize imports", "ctrl-alt-o", Editor, task::OptimizeImports),
@@ -173,7 +178,7 @@ impl Shortcut {
     /// The heading Settings lists it under.
     pub fn area(&self) -> &'static str {
         match self.scope {
-            Scope::Editor | Scope::File | Scope::Sql => "Editor",
+            Scope::Editor | Scope::File | Scope::Sql | Scope::Http => "Editor",
             Scope::Terminal => "Terminal",
             Scope::Review => "Changes",
             Scope::Browser => "Web",
@@ -226,6 +231,7 @@ impl Shortcut {
             Scope::Browser => vec![bind(Some(crate::browser::KEY_CONTEXT), action())],
             Scope::Picture => vec![bind(Some(crate::picture::KEY_CONTEXT), action())],
             Scope::Sql => vec![bind(Some(crate::task::SQL_INPUT_CONTEXT), action())],
+            Scope::Http => vec![bind(Some(crate::task::HTTP_INPUT_CONTEXT), action())],
         };
         made.into_iter().filter_map(Result::ok).collect()
     }
@@ -361,6 +367,7 @@ mod tests {
                 Browser => &["Browser"],
                 Picture => &["Picture"],
                 Sql => &["Sql"],
+                Http => &["Http"],
             }
         };
         let keyed: Vec<_> = SHORTCUTS.iter().filter(|s| !s.default.is_empty()).collect();
@@ -371,7 +378,7 @@ mod tests {
                 }
                 let shared = places(a.scope).iter().any(|p| places(b.scope).contains(p));
                 // Over the editor's keys, a SQL file's own: as they are meant.
-                let meant = matches!((a.scope, b.scope), (Sql, Editor) | (Editor, Sql) | (Browser | Picture, _) | (_, Browser | Picture));
+                let meant = matches!((a.scope, b.scope), (Sql | Http, Editor) | (Editor, Sql | Http) | (Browser | Picture, _) | (_, Browser | Picture));
                 assert!(!shared || meant, "{} and {} are both on {}", a.id, b.id, a.default);
             }
         }

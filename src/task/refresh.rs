@@ -196,6 +196,7 @@ impl TaskView {
         }
         // One list, shared by the tree, the finder and the lookups off the UI thread.
         *self.shared_files.write().unwrap() = files.clone();
+        self.find_http_files(&files);
         // Class names for terminal links: `Profit` in output links to Profit.kt.
         gpui_cn::terminal::add_known_names(files.iter().filter_map(|f| {
             let name = f.rsplit('/').next()?;
