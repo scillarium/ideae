@@ -37,9 +37,20 @@ jobs:
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds it again for the tests: this only sees that the rest compiles.
-      - run: cargo check --locked
+      # What each build used goes to used-*.json, for what the cache keeps.
+      - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
+        shell: bash
+      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+        shell: bash
       - run: cargo test --locked
       - run: scripts/string-slices.sh
+      # The cache saved after the job takes target/ whole: what an older one
+      # held and this run built again goes first (scripts/prune-target.py).
+      - name: Keep only what was used
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
 
   macos:
     runs-on: macos-latest
@@ -56,10 +67,21 @@ jobs:
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds it again for the tests: this only sees that the rest compiles.
-      - run: cargo check --locked
+      # What each build used goes to used-*.json, for what the cache keeps.
+      - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
+        shell: bash
+      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+        shell: bash
       - run: cargo test --locked
       # Intel Macs: the release builds for them on this runner too.
-      - run: cargo check --locked --target x86_64-apple-darwin
+      - run: cargo check --locked --target x86_64-apple-darwin --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-x86.json"
+      # The cache saved after the job takes target/ whole: what an older one
+      # held and this run built again goes first (scripts/prune-target.py).
+      - name: Keep only what was used
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
 
   windows:
     runs-on: windows-latest
@@ -74,5 +96,16 @@ jobs:
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds it again for the tests: this only sees that the rest compiles.
-      - run: cargo check --locked
+      # What each build used goes to used-*.json, for what the cache keeps.
+      - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
+        shell: bash
+      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+        shell: bash
       - run: cargo test --locked
+      # The cache saved after the job takes target/ whole: what an older one
+      # held and this run built again goes first (scripts/prune-target.py).
+      - name: Keep only what was used
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
