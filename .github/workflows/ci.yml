@@ -43,7 +43,7 @@ jobs:
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
         shell: bash
-      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
         shell: bash
       - run: cargo test --locked
       - run: scripts/string-slices.sh
@@ -54,6 +54,19 @@ jobs:
         run: |
           python=$(command -v python3 || command -v python)
           "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
+      # TRIAL, not for main: where the build's time and the cache's size go.
+      - name: What target holds
+        shell: bash
+        run: |
+          du -sh target/debug/* 2>/dev/null | sort -h | tail -8
+          echo "--- largest units"
+          du -sk target/debug/build/*/* 2>/dev/null | sort -n | tail -15 | awk '{printf "%6d MB %s\n", $1/1024, $2}'
+          echo "--- by kind"
+          for ext in rlib rmeta a so dylib dll lib o; do printf "%-6s " $ext; find target/debug -name "*.$ext" -type f -print0 2>/dev/null | xargs -0 du -ck 2>/dev/null | tail -1 | awk '{printf "%d MB\n", $1/1024}'; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ github.job }}
+          path: target/cargo-timings/cargo-timing.html
 
   macos:
     runs-on: macos-latest
@@ -72,7 +85,7 @@ jobs:
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
         shell: bash
-      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
         shell: bash
       - run: cargo test --locked
       # The cache saved after the job takes target/ whole: what an older one
@@ -82,6 +95,19 @@ jobs:
         run: |
           python=$(command -v python3 || command -v python)
           "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
+      # TRIAL, not for main: where the build's time and the cache's size go.
+      - name: What target holds
+        shell: bash
+        run: |
+          du -sh target/debug/* 2>/dev/null | sort -h | tail -8
+          echo "--- largest units"
+          du -sk target/debug/build/*/* 2>/dev/null | sort -n | tail -15 | awk '{printf "%6d MB %s\n", $1/1024, $2}'
+          echo "--- by kind"
+          for ext in rlib rmeta a so dylib dll lib o; do printf "%-6s " $ext; find target/debug -name "*.$ext" -type f -print0 2>/dev/null | xargs -0 du -ck 2>/dev/null | tail -1 | awk '{printf "%d MB\n", $1/1024}'; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ github.job }}
+          path: target/cargo-timings/cargo-timing.html
 
   windows:
     runs-on: windows-latest
@@ -100,7 +126,7 @@ jobs:
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
         shell: bash
-      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
         shell: bash
       - run: cargo test --locked
       # The cache saved after the job takes target/ whole: what an older one
@@ -110,3 +136,16 @@ jobs:
         run: |
           python=$(command -v python3 || command -v python)
           "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
+      # TRIAL, not for main: where the build's time and the cache's size go.
+      - name: What target holds
+        shell: bash
+        run: |
+          du -sh target/debug/* 2>/dev/null | sort -h | tail -8
+          echo "--- largest units"
+          du -sk target/debug/build/*/* 2>/dev/null | sort -n | tail -15 | awk '{printf "%6d MB %s\n", $1/1024, $2}'
+          echo "--- by kind"
+          for ext in rlib rmeta a so dylib dll lib o; do printf "%-6s " $ext; find target/debug -name "*.$ext" -type f -print0 2>/dev/null | xargs -0 du -ck 2>/dev/null | tail -1 | awk '{printf "%d MB\n", $1/1024}'; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ github.job }}
+          path: target/cargo-timings/cargo-timing.html
