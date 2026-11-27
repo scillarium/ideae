@@ -29,17 +29,47 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          # Its own cache is one more per run, never read again: ghostty's build
+          # is in Rust's cache already, with its build script's output.
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          # Our own crates too: vendor/'s are built optimized, minutes each
+          # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          # Cargo tells a local crate fresh by its files' times, which a checkout
+          # makes new: those of a crate that holds what was built are made old
+          # (scripts/vendor-times.py, its record kept in .vendor-built).
+          cache-workspace-crates: true
+          cache-directories: .vendor-built
+          # New with vendor/ in it: the cache of before would be taken as a
+          # match and none saved.
+          prefix-key: v1-rust
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: vendor/'s crates as old as their builds in the cache
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py old .vendor-built
       # cargo test builds it again for the tests: this only sees that the rest compiles.
-      - run: cargo check --locked
+      # What each build used goes to used-*.json, for what the cache keeps.
+      - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
+        shell: bash
+      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+        shell: bash
       - run: cargo test --locked
       - run: scripts/string-slices.sh
+      # The cache saved after the job takes target/ whole: what an older one
+      # held and this run built again goes first (scripts/prune-target.py).
+      - name: Keep only what was used
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py record .vendor-built
+          "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
 
   macos:
     runs-on: macos-latest
@@ -48,18 +78,34 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
+          # As in build.
+          cache-workspace-crates: true
+          cache-directories: .vendor-built
+          prefix-key: v1-rust
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: vendor/'s crates as old as their builds in the cache
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py old .vendor-built
       # cargo test builds it again for the tests: this only sees that the rest compiles.
-      - run: cargo check --locked
+      # What each build used goes to used-*.json, for what the cache keeps.
+      - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
+        shell: bash
+      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+        shell: bash
       - run: cargo test --locked
-      # Intel Macs: the release builds for them on this runner too.
-      - run: cargo check --locked --target x86_64-apple-darwin
+      - name: Keep only what was used
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py record .vendor-built
+          "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
 
   windows:
     runs-on: windows-latest
@@ -68,11 +114,31 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # As in build.
+          cache-workspace-crates: true
+          cache-directories: .vendor-built
+          prefix-key: v1-rust
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: vendor/'s crates as old as their builds in the cache
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py old .vendor-built
       # cargo test builds it again for the tests: this only sees that the rest compiles.
-      - run: cargo check --locked
+      # What each build used goes to used-*.json, for what the cache keeps.
+      - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
+        shell: bash
+      - run: cargo test --locked --no-run --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json"
+        shell: bash
       - run: cargo test --locked
+      - name: Keep only what was used
+        shell: bash
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py record .vendor-built
+          "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json

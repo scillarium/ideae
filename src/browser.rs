@@ -4830,6 +4830,9 @@ impl Focusable for BrowserView {
 
 #[cfg(test)]
 mod tests {
+    /// The key a click opens a link in a tab of its own with, as CDP's modifiers count it:
+    /// Ctrl, Meta (Cmd) on macOS.
+    const NEW_TAB: u32 = if cfg!(target_os = "macos") { 4 } else { 2 };
     use super::*;
 
     /// Ends the pictures' Chrome however a test ends: on macOS nothing else does.
@@ -5160,8 +5163,9 @@ mod tests {
         };
         let _ = out.send(Out::Move(json!({ "type": "mouseMoved", "x": 20., "y": 110. })));
         wait("the link's cursor", &mut |m| matches!(m, In::Cursor(c) if c == "pointer"));
-        // A link Ctrl+clicked, or with the middle button: a tab of its own, behind.
-        for (button, bit, modifiers) in [("left", 1, 2), ("middle", 4, 0)] {
+        // A link Ctrl+clicked (Cmd on macOS, where Ctrl+click is the right button's), or with
+        // the middle button: a tab of its own, behind.
+        for (button, bit, modifiers) in [("left", 1, NEW_TAB), ("middle", 4, 0)] {
             for kind in ["mousePressed", "mouseReleased"] {
                 let _ = out.send(Out::Command(
                     "Input.dispatchMouseEvent",
@@ -5640,12 +5644,12 @@ mod tests {
         assert!(to_b.try_recv().is_err(), "nothing of A's went to B");
         // Whatever the opened page opens is A's too.
         assert_eq!(slot(&owner).page_tasks.lock().unwrap().get(&opened), Some(&a));
-        // A link Ctrl+clicked in A: Chrome tells no opener, it is A's all the same, behind.
+        // A link Ctrl+clicked in A (Cmd on macOS): Chrome tells no opener, it is A's all the same, behind.
         let link = "document.body.innerHTML = \"<a href='about:blank#ctrl' style='position:fixed;left:0;top:0;width:200px;height:50px;display:block'>link</a>\"";
         let _ = in_a.send(Out::Command("Runtime.evaluate", json!({ "expression": link })));
         std::thread::sleep(Duration::from_millis(200));
         for kind in ["mousePressed", "mouseReleased"] {
-            let _ = in_a.send(Out::Command("Input.dispatchMouseEvent", json!({ "type": kind, "x": 20., "y": 20., "button": "left", "buttons": u32::from(kind == "mousePressed"), "clickCount": 1, "modifiers": 2 })));
+            let _ = in_a.send(Out::Command("Input.dispatchMouseEvent", json!({ "type": kind, "x": 20., "y": 20., "button": "left", "buttons": u32::from(kind == "mousePressed"), "clickCount": 1, "modifiers": NEW_TAB })));
         }
         let started = Instant::now();
         loop {

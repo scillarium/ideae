@@ -150,7 +150,7 @@ vendor/            patched gpui-component, gpui-base, gpui-cn, gpui-fast-linux, 
                    cn-pty: gpui-cn's pty, shell setup and process table without a window (gpui-cn re-exports it), for the daemon
 assets/side-icons/ the marks of the side's strip (Lucide's drawings, served by `task::Assets` over the kit's)
 assets/icon/       the app icon: ideae.svg, and the .icns and .ico made from it by scripts/icons.py
-scripts/           Xvfb driver for UI checks, wayland.sh (the same in a headless GNOME Shell), check.sh (the tests to run before a push), sweep-target.py (cargo's builds of before out of target/), remote-live.sh (projects on another machine against real sshd, in Docker), icons.py, macos-app.sh (a .app around a binary)
+scripts/           Xvfb driver for UI checks, wayland.sh (the same in a headless GNOME Shell), check.sh (the tests to run before a push), sweep-target.py (cargo's builds of before out of target/), prune-target.py and vendor-times.py (what CI's cache keeps, vendor/'s builds taken from it), remote-live.sh (projects on another machine against real sshd, in Docker), icons.py, macos-app.sh (a .app around a binary)
 ```
 
 ## Build and test

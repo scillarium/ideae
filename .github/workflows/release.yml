@@ -46,6 +46,9 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          # Its own cache is one more per run, never read again: ghostty's build
+          # is in Rust's cache already, with its build script's output.
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -80,6 +83,7 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -124,6 +128,7 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -169,6 +174,7 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
+          use-cache: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl

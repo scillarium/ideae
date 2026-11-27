@@ -25,12 +25,19 @@ fn main() {
     }
     let commit = git(&["rev-parse", "--short", "HEAD"]).unwrap_or_default();
     println!("cargo:rustc-env=IDEAE_COMMIT={commit}");
-    // A new commit or checkout changes these.
+    // A new commit or checkout changes these. Only those there: cargo runs
+    // this again every time for a path that is not, and builds the crate
+    // again with it (CI's shallow checkout has no packed-refs).
+    let watch = |path: String| {
+        if std::path::Path::new(&path).exists() {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    };
     if let Some(dir) = git(&["rev-parse", "--git-dir"]) {
-        println!("cargo:rerun-if-changed={dir}/HEAD");
+        watch(format!("{dir}/HEAD"));
     }
     if let Some(dir) = git(&["rev-parse", "--git-common-dir"]) {
-        println!("cargo:rerun-if-changed={dir}/refs/heads");
-        println!("cargo:rerun-if-changed={dir}/packed-refs");
+        watch(format!("{dir}/refs/heads"));
+        watch(format!("{dir}/packed-refs"));
     }
 }
