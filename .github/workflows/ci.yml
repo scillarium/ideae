@@ -39,10 +39,16 @@ jobs:
         with:
           # Our own crates too: vendor/'s are built optimized, minutes each
           # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          # Cargo tells a local crate fresh by its files' times, which a checkout
+          # makes new: they are made old below, and the key holds what vendor/
+          # is, so a build of other sources is never taken for its own.
           cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
-          key: trial-vendor
+          key: trial-vendor-${{ hashFiles('vendor/**') }}
+      - name: vendor/'s files as old as its builds in the cache
+        shell: bash
+        run: find vendor -type f -exec touch -t 200001010000 {} +
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -85,10 +91,16 @@ jobs:
         with:
           # Our own crates too: vendor/'s are built optimized, minutes each
           # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          # Cargo tells a local crate fresh by its files' times, which a checkout
+          # makes new: they are made old below, and the key holds what vendor/
+          # is, so a build of other sources is never taken for its own.
           cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
-          key: trial-vendor
+          key: trial-vendor-${{ hashFiles('vendor/**') }}
+      - name: vendor/'s files as old as its builds in the cache
+        shell: bash
+        run: find vendor -type f -exec touch -t 200001010000 {} +
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -130,10 +142,16 @@ jobs:
         with:
           # Our own crates too: vendor/'s are built optimized, minutes each
           # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          # Cargo tells a local crate fresh by its files' times, which a checkout
+          # makes new: they are made old below, and the key holds what vendor/
+          # is, so a build of other sources is never taken for its own.
           cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
-          key: trial-vendor
+          key: trial-vendor-${{ hashFiles('vendor/**') }}
+      - name: vendor/'s files as old as its builds in the cache
+        shell: bash
+        run: find vendor -type f -exec touch -t 200001010000 {} +
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
