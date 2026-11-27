@@ -56,15 +56,11 @@ jobs:
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
         shell: bash
-      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json" 2> >(tee "$RUNNER_TEMP/why1.log" | grep -v "fingerprint" >&2)
+      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json" 2> "$RUNNER_TEMP/why.log"
         shell: bash
-        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=info" }
-      - run: cargo test --locked 2> >(tee "$RUNNER_TEMP/why2.log" | grep -v "fingerprint" >&2)
-        shell: bash
-        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=info" }
-      - name: Why built again (TRIAL)
-        shell: bash
-        run: grep -hiE "dirty|stale|changed|mismatch" "$RUNNER_TEMP"/why1.log "$RUNNER_TEMP"/why2.log | cut -c1-400 | head -60
+        # TRIAL, not for main: why cargo builds a crate again.
+        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=trace" }
+      - run: cargo test --locked
       - run: scripts/string-slices.sh
       # The cache saved after the job takes target/ whole: what an older one
       # held and this run built again goes first (scripts/prune-target.py).
@@ -86,7 +82,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: timings-${{ github.job }}
-          path: target/cargo-timings/cargo-timing.html
+          path: |
+            target/cargo-timings/cargo-timing.html
+            ${{ runner.temp }}/why.log
 
   macos:
     runs-on: macos-latest
@@ -118,15 +116,11 @@ jobs:
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
         shell: bash
-      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json" 2> >(tee "$RUNNER_TEMP/why1.log" | grep -v "fingerprint" >&2)
+      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json" 2> "$RUNNER_TEMP/why.log"
         shell: bash
-        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=info" }
-      - run: cargo test --locked 2> >(tee "$RUNNER_TEMP/why2.log" | grep -v "fingerprint" >&2)
-        shell: bash
-        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=info" }
-      - name: Why built again (TRIAL)
-        shell: bash
-        run: grep -hiE "dirty|stale|changed|mismatch" "$RUNNER_TEMP"/why1.log "$RUNNER_TEMP"/why2.log | cut -c1-400 | head -60
+        # TRIAL, not for main: why cargo builds a crate again.
+        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=trace" }
+      - run: cargo test --locked
       # The cache saved after the job takes target/ whole: what an older one
       # held and this run built again goes first (scripts/prune-target.py).
       - name: Keep only what was used
@@ -147,7 +141,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: timings-${{ github.job }}
-          path: target/cargo-timings/cargo-timing.html
+          path: |
+            target/cargo-timings/cargo-timing.html
+            ${{ runner.temp }}/why.log
 
   windows:
     runs-on: windows-latest
@@ -179,15 +175,11 @@ jobs:
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
         shell: bash
-      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json" 2> >(tee "$RUNNER_TEMP/why1.log" | grep -v "fingerprint" >&2)
+      - run: cargo test --locked --no-run --timings --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-test.json" 2> "$RUNNER_TEMP/why.log"
         shell: bash
-        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=info" }
-      - run: cargo test --locked 2> >(tee "$RUNNER_TEMP/why2.log" | grep -v "fingerprint" >&2)
-        shell: bash
-        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=info" }
-      - name: Why built again (TRIAL)
-        shell: bash
-        run: grep -hiE "dirty|stale|changed|mismatch" "$RUNNER_TEMP"/why1.log "$RUNNER_TEMP"/why2.log | cut -c1-400 | head -60
+        # TRIAL, not for main: why cargo builds a crate again.
+        env: { CARGO_LOG: "cargo::core::compiler::fingerprint=trace" }
+      - run: cargo test --locked
       # The cache saved after the job takes target/ whole: what an older one
       # held and this run built again goes first (scripts/prune-target.py).
       - name: Keep only what was used
@@ -208,4 +200,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: timings-${{ github.job }}
-          path: target/cargo-timings/cargo-timing.html
+          path: |
+            target/cargo-timings/cargo-timing.html
+            ${{ runner.temp }}/why.log
