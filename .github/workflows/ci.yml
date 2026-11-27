@@ -40,15 +40,18 @@ jobs:
           # Our own crates too: vendor/'s are built optimized, minutes each
           # (gpui-component, gpui-base…); ideae's own go before it is saved.
           # Cargo tells a local crate fresh by its files' times, which a checkout
-          # makes new: they are made old below, and the key holds what vendor/
-          # is, so a build of other sources is never taken for its own.
+          # makes new: those of a crate that holds what was built are made old
+          # (scripts/vendor-times.py, its record kept in .vendor-built).
           cache-workspace-crates: true
+          cache-directories: .vendor-built
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
-          key: trial-vendor-${{ hashFiles('vendor/**') }}
-      - name: vendor/'s files as old as its builds in the cache
+          key: trial-vendor2
+      - name: vendor/'s crates as old as their builds in the cache
         shell: bash
-        run: find vendor -type f -exec touch -t 200001010000 {} +
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py old .vendor-built
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -63,6 +66,7 @@ jobs:
         shell: bash
         run: |
           python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py record .vendor-built
           "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && github.head_ref != 'ci-prune-cache' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
       # TRIAL, not for main: where the build's time and the cache's size go.
       - name: What target holds
@@ -92,15 +96,18 @@ jobs:
           # Our own crates too: vendor/'s are built optimized, minutes each
           # (gpui-component, gpui-base…); ideae's own go before it is saved.
           # Cargo tells a local crate fresh by its files' times, which a checkout
-          # makes new: they are made old below, and the key holds what vendor/
-          # is, so a build of other sources is never taken for its own.
+          # makes new: those of a crate that holds what was built are made old
+          # (scripts/vendor-times.py, its record kept in .vendor-built).
           cache-workspace-crates: true
+          cache-directories: .vendor-built
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
-          key: trial-vendor-${{ hashFiles('vendor/**') }}
-      - name: vendor/'s files as old as its builds in the cache
+          key: trial-vendor2
+      - name: vendor/'s crates as old as their builds in the cache
         shell: bash
-        run: find vendor -type f -exec touch -t 200001010000 {} +
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py old .vendor-built
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -114,6 +121,7 @@ jobs:
         shell: bash
         run: |
           python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py record .vendor-built
           "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && github.head_ref != 'ci-prune-cache' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
       # TRIAL, not for main: where the build's time and the cache's size go.
       - name: What target holds
@@ -143,15 +151,18 @@ jobs:
           # Our own crates too: vendor/'s are built optimized, minutes each
           # (gpui-component, gpui-base…); ideae's own go before it is saved.
           # Cargo tells a local crate fresh by its files' times, which a checkout
-          # makes new: they are made old below, and the key holds what vendor/
-          # is, so a build of other sources is never taken for its own.
+          # makes new: those of a crate that holds what was built are made old
+          # (scripts/vendor-times.py, its record kept in .vendor-built).
           cache-workspace-crates: true
+          cache-directories: .vendor-built
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
-          key: trial-vendor-${{ hashFiles('vendor/**') }}
-      - name: vendor/'s files as old as its builds in the cache
+          key: trial-vendor2
+      - name: vendor/'s crates as old as their builds in the cache
         shell: bash
-        run: find vendor -type f -exec touch -t 200001010000 {} +
+        run: |
+          python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py old .vendor-built
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -165,6 +176,7 @@ jobs:
         shell: bash
         run: |
           python=$(command -v python3 || command -v python)
+          "$python" scripts/vendor-times.py record .vendor-built
           "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && github.head_ref != 'ci-prune-cache' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
       # TRIAL, not for main: where the build's time and the cache's size go.
       - name: What target holds
