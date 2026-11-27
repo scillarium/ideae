@@ -42,6 +42,7 @@ jobs:
           cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
+          key: trial-vendor
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -87,6 +88,7 @@ jobs:
           cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
+          key: trial-vendor
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
@@ -131,6 +133,7 @@ jobs:
           cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' || github.head_ref == 'ci-prune-cache' }}
+          key: trial-vendor
       # cargo test builds it again for the tests: this only sees that the rest compiles.
       # What each build used goes to used-*.json, for what the cache keeps.
       - run: cargo check --locked --message-format=json-render-diagnostics > "$RUNNER_TEMP/used-check.json"
