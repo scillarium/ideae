@@ -53,6 +53,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release
+          # Read, never written: a release after every push to main saved some 4 GB
+          # of its own, and the repository's 10 GB pushed CI's caches out.
+          save-if: false
       # Against glibc 2.31, so it runs on older distributions too (see docs/building.md).
       - name: Build
         env:
@@ -81,6 +84,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release
+          save-if: false
       # gpui compiles its HLSL shaders with the Windows SDK's fxc.exe.
       - name: Find fxc
         shell: pwsh
@@ -126,6 +130,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.arch }}
+          save-if: false
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Server
         run: |
@@ -173,6 +178,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-server
+          save-if: false
       - name: Build
         run: |
           for arch in x86_64 aarch64; do
