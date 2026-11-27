@@ -37,6 +37,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          # Our own crates too: vendor/'s are built optimized, minutes each
+          # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds it again for the tests: this only sees that the rest compiles.
@@ -53,7 +56,7 @@ jobs:
         shell: bash
         run: |
           python=$(command -v python3 || command -v python)
-          "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
+          "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
       # TRIAL, not for main: where the build's time and the cache's size go.
       - name: What target holds
         shell: bash
@@ -79,6 +82,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Our own crates too: vendor/'s are built optimized, minutes each
+          # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds it again for the tests: this only sees that the rest compiles.
@@ -94,7 +100,7 @@ jobs:
         shell: bash
         run: |
           python=$(command -v python3 || command -v python)
-          "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
+          "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
       # TRIAL, not for main: where the build's time and the cache's size go.
       - name: What target holds
         shell: bash
@@ -120,6 +126,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          # Our own crates too: vendor/'s are built optimized, minutes each
+          # (gpui-component, gpui-base…); ideae's own go before it is saved.
+          cache-workspace-crates: true
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds it again for the tests: this only sees that the rest compiles.
@@ -135,7 +144,7 @@ jobs:
         shell: bash
         run: |
           python=$(command -v python3 || command -v python)
-          "$python" scripts/prune-target.py ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
+          "$python" scripts/prune-target.py --drop ideae,ideae-core ${{ github.ref != 'refs/heads/main' && '--dry-run' || '' }} "$RUNNER_TEMP"/used-*.json
       # TRIAL, not for main: where the build's time and the cache's size go.
       - name: What target holds
         shell: bash

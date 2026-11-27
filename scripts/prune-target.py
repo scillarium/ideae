@@ -10,6 +10,8 @@ files those runs wrote are read here, and a unit of target/ that none of
 them names goes. Run with nothing told, it removes nothing.
 
     prune-target.py FILE...   cargo's JSON messages
+    --drop CRATE,...          its builds go even when used: a crate of ours
+                              that every commit changes is built again anyway
     --dry-run                 says what would go
 """
 import json, os, re, shutil, sys
@@ -46,6 +48,15 @@ def used(paths):
     return hashes
 
 
+def crate_of(path, target):
+    """The crate a unit of target/ is of, as cargo names it."""
+    parts = os.path.relpath(path, target).split(os.sep)
+    if len(parts) >= 2 and parts[-2] not in ("deps", ".fingerprint", "build"):
+        return parts[-2]
+    name = NAMED.match(parts[-1]).group(0).rsplit("-", 1)[0]
+    return name[3:] if name.startswith("lib") else name
+
+
 def units(target):
     """Each unit's place in target/, with its hash: build/<crate>/<hash> as
     cargo lays it out now, and <name>-<hash> in deps, build and .fingerprint
@@ -67,8 +78,14 @@ def units(target):
 
 
 def main():
-    dry = "--dry-run" in sys.argv
-    told = [a for a in sys.argv[1:] if a != "--dry-run"]
+    args = sys.argv[1:]
+    dry = "--dry-run" in args
+    drop = set()
+    if "--drop" in args:
+        at = args.index("--drop")
+        drop = {c.replace("-", "_") for c in args[at + 1].split(",")}
+        del args[at : at + 2]
+    told = [a for a in args if a != "--dry-run"]
     target = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "target")
     keep = used([p for p in told if os.path.exists(p)])
     if not keep:
@@ -76,7 +93,7 @@ def main():
         return
     gone, freed = 0, 0
     for path, digest in list(units(target)):
-        if digest in keep:
+        if digest in keep and crate_of(path, target).replace("-", "_") not in drop:
             continue
         size = 0
         if os.path.isdir(path) and not os.path.islink(path):
