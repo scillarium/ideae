@@ -1194,7 +1194,11 @@ impl TaskView {
         // Enter is a carriage return; PowerShell's line editor takes a bare
         // newline for a line break inside the command and waits for more.
         let enter = if cfg!(windows) { "\r" } else { "\n" };
-        let input = input.map(|input| format!("{input}{enter}"));
+        let input = input.map(|input| {
+            let (typed, run) = typed_line(input);
+            env.extend(run);
+            format!("{typed}{enter}")
+        });
         let config = TerminalConfig::default()
             .with_colors(crate::theme::terminal_colors(cx))
             .with_appearance(crate::theme::terminal_appearance(&crate::state::settings()));
@@ -3565,5 +3569,35 @@ mod review_push_tests {
         task.update(cx, |t, cx| t.shut_down(cx));
         cx.update_window(handle.into(), |_, window, _| window.remove_window()).ok();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The variable a long command is typed from.
+const RUN_ENV: &str = "IDEAE_RUN";
+
+/// What is typed into a new terminal for `line`, and a variable it needs.
+/// It is typed before the shell's line editor reads it, while the terminal
+/// takes whole lines: macOS keeps 1024 bytes of one (Linux 4096) and drops
+/// the rest with its Enter, so a longer one runs from a variable.
+fn typed_line(line: String) -> (String, Option<(String, String)>) {
+    if cfg!(windows) || line.len() < 900 {
+        return (line, None);
+    }
+    (format!("eval \"${RUN_ENV}\""), Some((RUN_ENV.to_string(), line)))
+}
+
+#[cfg(test)]
+mod typed_tests {
+    /// A long command reaches the shell whole, through its variable; a short one is typed as it is.
+    #[test]
+    #[cfg(unix)]
+    fn a_long_command_is_run_from_a_variable() {
+        let long = format!("echo {}", "x".repeat(2000));
+        let (typed, run) = super::typed_line(long.clone());
+        let (name, value) = run.expect("a variable");
+        assert!(typed.len() < 30, "{typed}");
+        let out = std::process::Command::new("sh").arg("-c").arg(&typed).env(name, &value).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "x".repeat(2000));
+        assert_eq!(super::typed_line("claude --resume a".into()), ("claude --resume a".to_string(), None));
     }
 }
