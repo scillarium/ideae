@@ -16,6 +16,9 @@ pub struct State {
     /// The side panels of the lower half (a bit each; not set, Structure
     /// and Run), and how high it is.
     pub side_lower: Option<u8>,
+    /// The Tabs panel is of the upper half: apart from `side_lower`, which
+    /// builds of before it wrote without it.
+    pub side_tabs_above: bool,
     pub side_split: Option<f32>,
     /// Told once that the app is not listed with the applications.
     pub told_unlisted: bool,
@@ -266,6 +269,11 @@ pub struct Settings {
     pub preview_tabs: bool,
     /// File tabs kept open; past it, those left longest close. 0 for no limit.
     pub tab_limit: u32,
+    /// The side has a Tabs panel: the task's tabs listed one under another.
+    pub tabs_in_side: bool,
+    /// While that panel is in view, the panes have no row of tabs: a small
+    /// label over each tells what it shows.
+    pub no_tab_row: bool,
     /// The Changes tab starts with old and new one under the other.
     pub diff_unified: bool,
     /// Diffs leave out changes of whitespace and blank lines.
@@ -388,6 +396,8 @@ impl Default for Settings {
             show_side_worktrees: true,
             show_said: true,
             tab_limit: 12,
+            tabs_in_side: false,
+            no_tab_row: false,
             check_updates: true,
             hump_words: false,
             gutter_since_base: false,

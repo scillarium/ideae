@@ -3,7 +3,7 @@ use super::*;
 // ---------------------------------------------------------------- the side
 
 /// The panels of the side, in the order of their keys.
-pub(super) const PANES: [RightPane; 6] = [RightPane::Changes, RightPane::Files, RightPane::Structure, RightPane::Run, RightPane::Database, RightPane::Http];
+pub(super) const PANES: [RightPane; 7] = [RightPane::Changes, RightPane::Files, RightPane::Structure, RightPane::Run, RightPane::Database, RightPane::Http, RightPane::Tabs];
 
 /// How wide the strip of their marks is, at the window's edge.
 const STRIP: f32 = 38.;
@@ -16,6 +16,18 @@ pub struct SideLayout {
     pub split: Option<Pixels>,
 }
 impl Global for SideLayout {}
+
+impl SideLayout {
+    /// `below` with the Tabs panel's bit as given.
+    pub fn with_tabs(below: u8, tabs_below: bool) -> u8 {
+        let bit = 1 << RightPane::Tabs as u8;
+        if tabs_below { below | bit } else { below & !bit }
+    }
+
+    pub fn tabs_below(&self) -> bool {
+        self.below & 1 << RightPane::Tabs as u8 != 0
+    }
+}
 
 /// The app's own drawings, over the kit's: the marks of the side's strip.
 pub struct Assets;
@@ -37,7 +49,7 @@ impl AssetSource for Assets {
             "lock-open", "variable", "arrow-down-a-z", "house", "square-plus", "archive-restore", "archive",
             "git-branch-minus", "settings", "message-circle-question-mark", "copy", "folder-open", "square-terminal",
             "pencil", "trash", "file-plus", "pin", "pin-off", "columns-2", "rows-2", "pause", "star", "star-off",
-            "external-link", "rotate-ccw", "git-compare", "eye", "clock", "bot", "git-fork", "minus", "scissors", "clipboard-paste", "lightbulb", "send", "bookmark", "wand-sparkles", "database", "table",
+            "external-link", "rotate-ccw", "git-compare", "eye", "clock", "bot", "git-fork", "minus", "scissors", "clipboard-paste", "lightbulb", "send", "bookmark", "wand-sparkles", "database", "table", "layers",
         );
         Ok(Some(ours.into()))
     }
@@ -48,9 +60,9 @@ impl AssetSource for Assets {
 }
 
 impl Default for SideLayout {
-    /// Changes and Files above, Structure and Run below.
+    /// Changes and Files above, Structure, Run and Tabs below.
     fn default() -> Self {
-        Self { below: 1 << RightPane::Structure as u8 | 1 << RightPane::Run as u8, split: None }
+        Self { below: 1 << RightPane::Structure as u8 | 1 << RightPane::Run as u8 | 1 << RightPane::Tabs as u8, split: None }
     }
 }
 
@@ -84,6 +96,7 @@ impl RightPane {
             RightPane::Run => "run_panel",
             RightPane::Database => "database_panel",
             RightPane::Http => "http_panel",
+            RightPane::Tabs => "tabs_panel",
         }
     }
 
@@ -95,6 +108,7 @@ impl RightPane {
             RightPane::Run => "Run",
             RightPane::Database => "Database",
             RightPane::Http => "HTTP",
+            RightPane::Tabs => "Tabs",
         }
     }
 
@@ -107,6 +121,7 @@ impl RightPane {
             RightPane::Run => "side-icons/play.svg",
             RightPane::Database => "side-icons/database.svg",
             RightPane::Http => "side-icons/send.svg",
+            RightPane::Tabs => "side-icons/layers.svg",
         };
         svg().path(drawing).size(px(18.)).flex_none().text_color(color)
     }
@@ -119,12 +134,13 @@ impl RightPane {
             RightPane::Run => "run_panel",
             RightPane::Database => "database_panel",
             RightPane::Http => "http_panel",
+            RightPane::Tabs => "tabs_panel",
         }
     }
 }
 
 impl TaskView {
-    fn below(pane: RightPane, cx: &App) -> bool {
+    pub(super) fn below(pane: RightPane, cx: &App) -> bool {
         cx.try_global::<SideLayout>().copied().unwrap_or_default().below & (1 << pane as u8) != 0
     }
 
@@ -170,6 +186,10 @@ impl TaskView {
     pub(super) fn close_panel(&mut self, pane: RightPane, cx: &mut Context<Self>) {
         for half in &mut self.side {
             *half = half.filter(|open| *open != pane);
+        }
+        // The tabs come back to the half another panel leaves.
+        if pane != RightPane::Tabs {
+            self.tabs_to_side(cx);
         }
         if self.side == [None, None] {
             self.side_over = false;
@@ -267,7 +287,8 @@ impl TaskView {
                 }))
         };
         let mut halves = [half(false, cx), half(true, cx)];
-        for pane in PANES {
+        let tabs_mark = crate::state::with_settings(|s| s.tabs_in_side);
+        for pane in PANES.into_iter().filter(|pane| *pane != RightPane::Tabs || tabs_mark) {
             let shown = self.panel_shown(pane);
             let below = Self::below(pane, cx);
             // What can be told without the panel: how many files changed (green when some are staged), how many services run.
@@ -413,6 +434,7 @@ impl TaskView {
             RightPane::Run => Vec::new(),
             RightPane::Database => self.db_panel_tools(cx),
             RightPane::Http => self.http_panel_tools(cx),
+            RightPane::Tabs => Vec::new(),
         }
     }
 
@@ -500,6 +522,7 @@ impl TaskView {
             RightPane::Run => panel.child(self.render_run_panel(cx)),
             RightPane::Database => panel.child(self.render_db_panel(cx)),
             RightPane::Http => panel.child(self.render_http_panel(cx)),
+            RightPane::Tabs => panel.child(self.render_tab_list(cx)),
             RightPane::Files => panel.child(self.render_tree(cx)),
             RightPane::Structure => panel.child(self.render_structure(cx)),
             RightPane::Changes => panel.child(self.render_change_lists(cx)).child(self.render_commit_box(cx)),

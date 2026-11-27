@@ -454,6 +454,17 @@ R, C) go on from it and F4 opens the file at its first change. With the
 keyboard in the list (Alt+1), arrows move, Enter shows the diff, F4 opens the
 file.
 
+Tabs in the side (Settings → General → Tabs) adds a Tabs panel (Alt+7) of the
+lower half: the task's tabs one under another, under the name of their pane
+when the panes are split. A click shows a tab in its pane, the middle button
+closes it, a right-click has its menu, and dragged it goes on another row (its
+pane too), on a pane or to a pane's edge to split. The panel opens in its half
+whenever that half is empty. With No row of tabs over the panes on as well,
+the panes lose their rows of tabs while the panel is in view: a small label at
+a pane's upper right (the end of a file's own header) tells what it shows, and
+is the tab to middle-click, right-click or drag. With the panel out of view
+(another panel in its half, a narrow window, Focus mode) the rows are back.
+
 Learn the keys (Settings → Keys), as JetBrains' Key Promoter: a command that
 has keys, chosen from a menu, a right-click menu, the command palette or a
 button (Back, Forward, History, Go to file, Find, a panel's mark, closing a

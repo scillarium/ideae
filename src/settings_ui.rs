@@ -452,6 +452,24 @@ fn pages(
                     |s, v| s.menu_bar_shown = v,
                 ))),
         ).group(
+            SettingGroup::new().title("Tabs")
+                .item(switch(
+                    draft,
+                    "tabs_in_side",
+                    "Tabs in the side",
+                    "A Tabs panel in the side lists the task's tabs one under another, by pane when split. It opens in its half whenever that half is empty.",
+                    |s| s.tabs_in_side,
+                    |s, v| s.tabs_in_side = v,
+                ))
+                .item(switch(
+                    draft,
+                    "no_tab_row",
+                    "No row of tabs over the panes",
+                    "With Tabs in the side: while the Tabs panel is in view, the panes have no row of tabs. A small label at a pane's upper right tells what it shows; middle-click it to close the tab, right-click for its menu, drag it to move the tab.",
+                    |s| s.no_tab_row,
+                    |s, v| s.no_tab_row = v,
+                )),
+        ).group(
             SettingGroup::new().title("Power")
                 .item(switch(
                     draft,
@@ -605,7 +623,7 @@ fn pages(
                     |s, v| s.format_on_save = v,
                 )),
         ).group(crate::predict::settings_group(draft)).group(
-            SettingGroup::new().title("Tabs")
+            SettingGroup::new().title("File tabs")
                 .item(switch(
                     draft,
                     "preview_tabs",

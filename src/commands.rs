@@ -186,7 +186,7 @@ pub struct InHand {
     pub(crate) git: [bool; GitCommand::ALL.len()],
     /// Which of Agent, Changes, History and Shell is the front tab; which side panel shows.
     pub(crate) front: Option<crate::task::FrontTab>,
-    pub(crate) panels: [bool; 6],
+    pub(crate) panels: [bool; 7],
 }
 
 impl InHand {
@@ -213,7 +213,7 @@ impl InHand {
             services_waiting: false,
             git: [false; GitCommand::ALL.len()],
             front: None,
-            panels: [false; 6],
+            panels: [false; 7],
         }
     }
 

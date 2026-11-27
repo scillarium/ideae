@@ -73,6 +73,7 @@ pub static SHORTCUTS: &[Shortcut] = &[
     shortcut!("run_panel", "Run panel", "alt-4", Everywhere, task::ShowSidePanel(3)),
     shortcut!("database_panel", "Database panel", "alt-5", Everywhere, task::ShowSidePanel(4)),
     shortcut!("http_panel", "HTTP panel", "alt-6", Everywhere, task::ShowSidePanel(5)),
+    shortcut!("tabs_panel", "Tabs panel", "alt-7", Everywhere, task::ShowSidePanel(6)),
     shortcut!("next_tab", "Next tab", "ctrl-pagedown", Everywhere, task::NextTab),
     shortcut!("prev_tab", "Previous tab", "ctrl-pageup", Everywhere, task::PrevTab),
     shortcut!("close_tab", "Close tab", "ctrl-f4", Everywhere, task::CloseTab),

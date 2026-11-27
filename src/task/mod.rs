@@ -120,6 +120,7 @@ mod bookmarks;
 mod change_popup;
 mod file_tree;
 mod strip;
+mod side_tabs;
 mod tell;
 use file_tree::*;
 use git_ui::*;
@@ -174,7 +175,7 @@ pub struct TabsState {
     pub front: Option<FrontTab>,
     /// The side panels in view, by their place in the order of their keys:
     /// none in focus mode, or of a narrow window's hidden side.
-    pub panels: [bool; 6],
+    pub panels: [bool; 7],
 }
 
 /// The tabs the menu bar names, when one is in front.
@@ -362,6 +363,8 @@ pub(crate) enum RightPane {
     Database,
     /// The project's `.http` files and the requests this task sent.
     Http,
+    /// The task's tabs, one under another (Settings: Tabs in the side).
+    Tabs,
 }
 
 const NAV_LIMIT: usize = 100;
@@ -725,6 +728,8 @@ pub struct TaskView {
     /// In a narrow window the side panel is over the task, shown on asking.
     narrow: bool,
     side_over: bool,
+    /// The Tabs panel was put in its half once, at the first frame.
+    tabs_placed: bool,
     /// How full the agent's context is, from 0 to 1, as the workspace last read it.
     pub context_fill: f32,
     told_action: Option<(bool, String)>,
@@ -1111,6 +1116,7 @@ impl TaskView {
             context_fill: 0.,
             narrow: false,
             side_over: false,
+            tabs_placed: false,
             refresh_tx,
             base_override,
             _watching: watching,
@@ -2302,6 +2308,7 @@ impl TaskView {
         let len = match self.keyed {
             RightPane::Changes => self.files.len(),
             RightPane::Structure => self.structure_items(cx).len(),
+            RightPane::Tabs => self.listed_tabs().len(),
             RightPane::Files | RightPane::Run | RightPane::Database | RightPane::Http => return,
         };
         match event.keystroke.key.as_str() {
@@ -2313,6 +2320,11 @@ impl TaskView {
                     RightPane::Changes => {
                         let path = self.files[ix].path.clone();
                         self.show_changed_file(path, window, cx);
+                    }
+                    RightPane::Tabs => {
+                        if let Some(&(tab, _)) = self.listed_tabs().get(ix) {
+                            self.activate(tab, window, cx);
+                        }
                     }
                     _ => {
                         let line = self.structure_items(cx)[ix].line;
@@ -2541,6 +2553,9 @@ impl Render for TaskView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.side_has_focus.set(self.side_focus.is_focused(window) || self.peek_focus.is_focused(window));
         self.settle_side(cx);
+        if !std::mem::replace(&mut self.tabs_placed, true) {
+            self.tabs_to_side(cx);
+        }
         // Structure is of the file in view: with none there it shows none, not the one that was.
         let in_view = self.file_in_view();
         self.structure_file = in_view;

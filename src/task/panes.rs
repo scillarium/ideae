@@ -312,6 +312,14 @@ impl TaskView {
                 .text_color(cx.theme().muted_foreground)
                 .child(label)
         };
+        // With the tabs listed in the side, a label over the pane instead of its row.
+        let rowless = self.rowless();
+        if !rowless {
+            if let Some(TabKind::File(file)) = shown.and_then(|id| self.ix_of(id)).map(|ix| &self.tabs[ix].kind) {
+                file.read(cx).label_room.set(px(0.));
+            }
+        }
+        let top = if rowless { px(0.) } else { TAB_ROW };
         v_flex()
             .id(pane.id())
             .relative()
@@ -320,7 +328,7 @@ impl TaskView {
             .min_h_0()
             .overflow_hidden()
             .capture_any_mouse_down(cx.listener(move |this, _, _, cx| this.focus_pane(pane, cx)))
-            .child(
+            .when(!rowless, |el| el.child(
                 div()
                     .relative()
                     .border_t_2()
@@ -338,17 +346,18 @@ impl TaskView {
                                 .on_drop(cx.listener(move |this, files: &DraggedFiles, window, cx| this.drop_files(files, pane, window, cx))),
                         )
                     }),
-            )
+            ))
             .children(shown.and_then(|id| self.ix_of(id)).and_then(|ix| self.render_question_bar(ix, cx)))
             .children(shown.and_then(|id| self.ix_of(id)).and_then(|ix| self.render_loop_bar(ix, cx)))
             .child(div().flex_1().min_h_0().child(self.tab_content(shown.and_then(|id| self.ix_of(id)), cx)))
+            .when(rowless, |el| el.children(self.render_tab_label(pane, cx)))
             .when(layer, |el| {
                 el.child(
                     div()
                         .id("drop-layer")
                         .absolute()
                         // Below the tabs: a tab dropped on another takes its place.
-                        .top(TAB_ROW)
+                        .top(top)
                         .left_0()
                         .h(if down_zone { relative(0.7) } else { relative(1.) })
                         .w(if right_zone { relative(0.7) } else { relative(1.) })
@@ -360,7 +369,7 @@ impl TaskView {
             })
             .when(right_zone, |el| {
                 let label = if drag == Drag::Files { "Drop to open beside" } else { "Drop to split" };
-                el.child(zone("split-zone", Pane { right: true, below: false }, label, cx).top(TAB_ROW).right_0().h_full().w(relative(0.3)).border_l_2())
+                el.child(zone("split-zone", Pane { right: true, below: false }, label, cx).top(top).right_0().h_full().w(relative(0.3)).border_l_2())
             })
             .when(down_zone, |el| {
                 el.child(

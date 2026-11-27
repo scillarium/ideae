@@ -173,6 +173,7 @@ impl TaskView {
             lsp_missing: None,
             lsp_attach: 0,
             lsp_unlicensed: false,
+            label_room: Default::default(),
             preview: Default::default(),
             sql: super::sql::is_sql(&path).then(|| super::sql::SqlFile::new(&path)),
             http: super::http::is_http(&path).then(|| super::http::HttpFile::new(&path)),

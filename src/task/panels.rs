@@ -110,30 +110,7 @@ impl TaskView {
                     }),
             )
             .children(in_pane.into_iter().map(|ix| (ix, &self.tabs[ix])).map(|(ix, tab)| {
-                let mut label = tab.title.clone();
-                if matches!(tab.kind, TabKind::Terminal(_)) && !tab.shown.is_empty() {
-                    label = format!("{}: {}", tab.title, short_title(&tab.shown)).into();
-                }
-                if tab.agent == Some(Who::Main) {
-                    // Which agent, when there are several.
-                    if let Some(letter) = self.agent_letter() {
-                        label = format!("[{letter}] {label}").into();
-                    }
-                }
-                if let Some((glyph, _)) = tab.agent.and_then(|who| self.agent_of(who)).and_then(|a| status_glyph(&a.status)) {
-                    label = format!("{glyph} {label}").into();
-                }
-                if matches!(tab.kind, TabKind::Browser(_)) && !tab.shown.is_empty() && tab.shown != "about:blank" {
-                    label = short_title(&tab.shown).into();
-                }
-                if matches!(tab.kind, TabKind::File(_)) {
-                    if tab.dirty {
-                        label = format!("● {label}").into();
-                    }
-                }
-                if tab.pinned {
-                    label = format!("⚑ {label}").into();
-                }
+                let label = self.tab_label(tab);
                 let closable = closable(tab);
                 let dragged = DraggedTab { tab_id: tab.id, title: label.clone() };
                 let item = if tab.agent == Some(Who::Main) {
@@ -231,104 +208,37 @@ impl TaskView {
                     item
                 }
             }));
-        let task = cx.weak_entity();
-        div().id(["tab-bar-left", "tab-bar-left-below", "tab-bar-right", "tab-bar-right-below"][pane.ix()]).w_full().child(bar).context_menu(move |menu, _, cx| {
-            let Some(view) = task.upgrade() else { return menu };
-            let clicked = menu_tab.take();
-            let t = view.read(cx);
-            let tab = clicked.and_then(|id| t.tabs.iter().find(|t| t.id == id));
-            let reopen = !t.closed.is_empty();
-            let moves = tab.and_then(|tab| t.ix_of(tab.id)).map(|ix| t.moves_of(ix)).unwrap_or_default();
-            let (pinned, id) = (tab.is_some_and(|t| t.pinned), tab.map(|t| t.id));
-            // Each shown only when it would close something.
-            let from = tab.and_then(|tab| t.ix_of(tab.id)).unwrap_or(usize::MAX);
-            let others = !t.closed_together(pane, |_, other| Some(other.id) != id, cx).is_empty();
-            let to_right = !t.closed_together(pane, |ix, _| ix > from, cx).is_empty();
-            let all = !t.closed_together(pane, |_, _| true, cx).is_empty();
-            let close = tab.is_some_and(closable);
-            // The task's own agent's tab stands for the task: it is renamed from there too.
-            let renames = tab.is_some_and(|tab| tab.agent == Some(Who::Main));
-            let paths = tab.and_then(|tab| match &tab.kind {
-                TabKind::File(file) => {
-                    let path = file.read(cx).path.clone();
-                    let relative = path.strip_prefix(&t.root).unwrap_or(&path).display().to_string();
-                    Some((path, relative))
-                }
-                _ => None,
-            });
-            let act = |label: &'static str, f: fn(&mut TaskView, Option<usize>, Pane, &mut Window, &mut Context<TaskView>)| {
-                let view = view.downgrade();
-                PopupMenuItem::new(label).on_click(move |_, window, cx| {
-                    let _ = view.update(cx, |t, cx| f(t, id, pane, window, cx));
-                })
-            };
-            let icon = crate::sidebar::menu_icon;
-            let menu = match id {
-                Some(_) => menu
-                    .when(renames, |menu| {
-                        let view = view.downgrade();
-                        menu.item(PopupMenuItem::new("Rename task…").icon(icon("pencil")).on_click(move |_, _, cx| {
-                            let _ = view.update(cx, |_, cx| cx.emit(TaskEvent::Rename));
-                        }))
-                        .separator()
-                    })
-                    .when(close, |menu| {
-                        menu.item(act("Close", |t, id, _, window, cx| {
-                            if let Some(ix) = id.and_then(|id| t.ix_of(id)) {
-                                t.close_tab(ix, window, cx);
-                                crate::learn::used("close_tab", window, cx);
-                            }
-                        }).icon(icon("x")))
-                    })
-                    .when(others, |menu| menu.item(act("Close others", |t, id, pane, window, cx| t.close_many(pane, |_, tab| Some(tab.id) != id, window, cx))))
-                    .when(to_right, |menu| {
-                        menu.item(act("Close to the right", |t, id, pane, window, cx| {
-                            let from = id.and_then(|id| t.ix_of(id)).unwrap_or(usize::MAX);
-                            t.close_many(pane, |ix, _| ix > from, window, cx)
-                        }))
-                    })
-                    .when(all, |menu| menu.item(act("Close all", |t, _, pane, window, cx| t.close_many(pane, |_, _| true, window, cx))))
-                    .when(close || others || to_right || all, |menu| menu.separator())
-                    .when_some(paths, |menu, (path, relative)| {
-                        let (shown, revealed) = (path.clone(), path.clone());
-                        let view = view.downgrade();
-                        menu.item(crate::copying::item("Copy path", path.display().to_string()).icon(icon("copy")))
-                            .item(crate::copying::item("Copy relative path", relative))
-                            .item(PopupMenuItem::new("Show in Files").icon(icon("locate-fixed")).on_click(move |_, _, cx| {
-                                let _ = view.update(cx, |t, cx| t.show_in_files(&shown, cx));
-                            }))
-                            .item(PopupMenuItem::new("Reveal in file manager").icon(icon("folder-open")).on_click(move |_, _, cx| {
-                                super::file_tree::reveal(revealed.clone(), false, cx)
-                            }))
-                            .separator()
-                    })
-                    .item(act(if pinned { "Unpin" } else { "Pin" }, |t, id, _, _, cx| {
-                        if let Some(id) = id {
-                            t.toggle_pin(id, cx)
-                        }
-                    }).icon(icon(if pinned { "pin-off" } else { "pin" })))
-                    .map(|mut menu| {
-                        for (label, to) in moves {
-                            let view = view.downgrade();
-                            let mark = match label.as_ref() {
-                                "Split down" => Some(icon("rows-2")),
-                                "Split right" => Some(icon("columns-2")),
-                                _ => None,
-                            };
-                            menu = menu.item(PopupMenuItem::new(label).when_some(mark, |item, mark| item.icon(mark)).on_click(move |_, window, cx| {
-                                let _ = view.update(cx, |t, cx| {
-                                    if let Some(ix) = id.and_then(|id| t.ix_of(id)) {
-                                        t.move_to(ix, to, window, cx)
-                                    }
-                                });
-                            }));
-                        }
-                        menu
-                    }),
-                None => menu.when(all, |menu| menu.item(act("Close all", |t, _, pane, window, cx| t.close_many(pane, |_, _| true, window, cx)))),
-            };
-            menu.when(reopen, |menu| menu.separator().item(act("Reopen closed tab", |t, _, _, window, cx| t.reopen_closed(window, cx)).icon(icon("rotate-ccw"))))
-        })
+        div().id(["tab-bar-left", "tab-bar-left-below", "tab-bar-right", "tab-bar-right-below"][pane.ix()]).w_full().child(bar).context_menu(tab_menu(cx.weak_entity(), menu_tab, pane))
+    }
+
+    /// What a tab is called in its row: the agent's status and letter, what a
+    /// terminal or a page shows, a file's unsaved edits, a pin.
+    pub(super) fn tab_label(&self, tab: &TabItem) -> SharedString {
+        let mut label = tab.title.clone();
+        if matches!(tab.kind, TabKind::Terminal(_)) && !tab.shown.is_empty() {
+            label = format!("{}: {}", tab.title, short_title(&tab.shown)).into();
+        }
+        if tab.agent == Some(Who::Main) {
+            // Which agent, when there are several.
+            if let Some(letter) = self.agent_letter() {
+                label = format!("[{letter}] {label}").into();
+            }
+        }
+        if let Some((glyph, _)) = tab.agent.and_then(|who| self.agent_of(who)).and_then(|a| status_glyph(&a.status)) {
+            label = format!("{glyph} {label}").into();
+        }
+        if matches!(tab.kind, TabKind::Browser(_)) && !tab.shown.is_empty() && tab.shown != "about:blank" {
+            label = short_title(&tab.shown).into();
+        }
+        if matches!(tab.kind, TabKind::File(_)) {
+            if tab.dirty {
+                label = format!("● {label}").into();
+            }
+        }
+        if tab.pinned {
+            label = format!("⚑ {label}").into();
+        }
+        label
     }
 
     pub(super) fn render_structure(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -424,5 +334,110 @@ impl TaskView {
                     .child(gpui_kit::component::scroll::Scrollbar::vertical(&self.structure_scroll)),
             )
             .into_any_element()
+    }
+}
+
+/// The menu of a tab: the one the pointer pressed last (`menu_tab`), in `pane`.
+pub(super) fn tab_menu(
+    task: WeakEntity<TaskView>,
+    menu_tab: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    pane: Pane,
+) -> impl Fn(gpui_kit::component::menu::PopupMenu, &mut Window, &mut Context<gpui_kit::component::menu::PopupMenu>) -> gpui_kit::component::menu::PopupMenu + 'static {
+    move |menu, _, cx| {
+        let Some(view) = task.upgrade() else { return menu };
+        let clicked = menu_tab.take();
+        let t = view.read(cx);
+        let tab = clicked.and_then(|id| t.tabs.iter().find(|t| t.id == id));
+        let reopen = !t.closed.is_empty();
+        let moves = tab.and_then(|tab| t.ix_of(tab.id)).map(|ix| t.moves_of(ix)).unwrap_or_default();
+        let (pinned, id) = (tab.is_some_and(|t| t.pinned), tab.map(|t| t.id));
+        // Each shown only when it would close something.
+        let from = tab.and_then(|tab| t.ix_of(tab.id)).unwrap_or(usize::MAX);
+        let others = !t.closed_together(pane, |_, other| Some(other.id) != id, cx).is_empty();
+        let to_right = !t.closed_together(pane, |ix, _| ix > from, cx).is_empty();
+        let all = !t.closed_together(pane, |_, _| true, cx).is_empty();
+        let close = tab.is_some_and(closable);
+        // The task's own agent's tab stands for the task: it is renamed from there too.
+        let renames = tab.is_some_and(|tab| tab.agent == Some(Who::Main));
+        let paths = tab.and_then(|tab| match &tab.kind {
+            TabKind::File(file) => {
+                let path = file.read(cx).path.clone();
+                let relative = path.strip_prefix(&t.root).unwrap_or(&path).display().to_string();
+                Some((path, relative))
+            }
+            _ => None,
+        });
+        let act = |label: &'static str, f: fn(&mut TaskView, Option<usize>, Pane, &mut Window, &mut Context<TaskView>)| {
+            let view = view.downgrade();
+            PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                let _ = view.update(cx, |t, cx| f(t, id, pane, window, cx));
+            })
+        };
+        let icon = crate::sidebar::menu_icon;
+        let menu = match id {
+            Some(_) => menu
+                .when(renames, |menu| {
+                    let view = view.downgrade();
+                    menu.item(PopupMenuItem::new("Rename task…").icon(icon("pencil")).on_click(move |_, _, cx| {
+                        let _ = view.update(cx, |_, cx| cx.emit(TaskEvent::Rename));
+                    }))
+                    .separator()
+                })
+                .when(close, |menu| {
+                    menu.item(act("Close", |t, id, _, window, cx| {
+                        if let Some(ix) = id.and_then(|id| t.ix_of(id)) {
+                            t.close_tab(ix, window, cx);
+                            crate::learn::used("close_tab", window, cx);
+                        }
+                    }).icon(icon("x")))
+                })
+                .when(others, |menu| menu.item(act("Close others", |t, id, pane, window, cx| t.close_many(pane, |_, tab| Some(tab.id) != id, window, cx))))
+                .when(to_right, |menu| {
+                    menu.item(act("Close to the right", |t, id, pane, window, cx| {
+                        let from = id.and_then(|id| t.ix_of(id)).unwrap_or(usize::MAX);
+                        t.close_many(pane, |ix, _| ix > from, window, cx)
+                    }))
+                })
+                .when(all, |menu| menu.item(act("Close all", |t, _, pane, window, cx| t.close_many(pane, |_, _| true, window, cx))))
+                .when(close || others || to_right || all, |menu| menu.separator())
+                .when_some(paths, |menu, (path, relative)| {
+                    let (shown, revealed) = (path.clone(), path.clone());
+                    let view = view.downgrade();
+                    menu.item(crate::copying::item("Copy path", path.display().to_string()).icon(icon("copy")))
+                        .item(crate::copying::item("Copy relative path", relative))
+                        .item(PopupMenuItem::new("Show in Files").icon(icon("locate-fixed")).on_click(move |_, _, cx| {
+                            let _ = view.update(cx, |t, cx| t.show_in_files(&shown, cx));
+                        }))
+                        .item(PopupMenuItem::new("Reveal in file manager").icon(icon("folder-open")).on_click(move |_, _, cx| {
+                            super::file_tree::reveal(revealed.clone(), false, cx)
+                        }))
+                        .separator()
+                })
+                .item(act(if pinned { "Unpin" } else { "Pin" }, |t, id, _, _, cx| {
+                    if let Some(id) = id {
+                        t.toggle_pin(id, cx)
+                    }
+                }).icon(icon(if pinned { "pin-off" } else { "pin" })))
+                .map(|mut menu| {
+                    for (label, to) in moves {
+                        let view = view.downgrade();
+                        let mark = match label.as_ref() {
+                            "Split down" => Some(icon("rows-2")),
+                            "Split right" => Some(icon("columns-2")),
+                            _ => None,
+                        };
+                        menu = menu.item(PopupMenuItem::new(label).when_some(mark, |item, mark| item.icon(mark)).on_click(move |_, window, cx| {
+                            let _ = view.update(cx, |t, cx| {
+                                if let Some(ix) = id.and_then(|id| t.ix_of(id)) {
+                                    t.move_to(ix, to, window, cx)
+                                }
+                            });
+                        }));
+                    }
+                    menu
+                }),
+            None => menu.when(all, |menu| menu.item(act("Close all", |t, _, pane, window, cx| t.close_many(pane, |_, _| true, window, cx)))),
+        };
+        menu.when(reopen, |menu| menu.separator().item(act("Reopen closed tab", |t, _, _, window, cx| t.reopen_closed(window, cx)).icon(icon("rotate-ccw"))))
     }
 }

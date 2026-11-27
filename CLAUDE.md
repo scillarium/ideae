@@ -40,6 +40,7 @@ src/task/          one task, a module: what is private to it is seen by all of i
   panels.rs        the tab bar and the side panels
   panes.rs         where tabs are: two columns of an upper pane and, when a tab is put there, a lower one
   strip.rs         the side: the strip of the panels' marks, a panel in each half, one come over the task from its mark
+  side_tabs.rs     tabs in the side: the Tabs panel listing them by pane, a pane's label in place of its row of tabs
   nav.rs           back and forward
   lookups.rs       outline, usages and places, installing a language server
   file.rs          an open file: editor, save and reload, blame, the language server's bridge

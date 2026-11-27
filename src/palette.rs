@@ -376,6 +376,7 @@ impl Workspace {
             keyed("Run panel", "run_panel", "panel: services, dev servers, workers"),
             keyed("Database panel", "database_panel", "panel: connections, databases, tables, consoles"),
             keyed("HTTP panel", "http_panel", "panel: .http request files, requests sent, REST client"),
+            keyed("Tabs panel", "tabs_panel", "panel: the task's tabs one under another, vertical tabs"),
             keyed("Branches…", "branches", "git: open as a task, compare, delete"),
             Entry::new(crate::commands::sentence(crate::commands::TaskCommand::CompareWithBranch.name(false)), with_task(|t, window, cx| t.compare_with_dialog(None, window, cx))).detail("git: the working tree"),
             keyed("Complete here", "complete", "editor"),

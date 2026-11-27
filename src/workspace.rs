@@ -543,7 +543,8 @@ impl Workspace {
         // A task's Chrome can be started by its agent before any web tab is drawn.
         crate::browser::note_screen(window.scale_factor());
         let side = crate::task::SideLayout::default();
-        cx.set_global(crate::task::SideLayout { below: saved.side_lower.unwrap_or(side.below), split: saved.side_split.map(px) });
+        let below = crate::task::SideLayout::with_tabs(saved.side_lower.unwrap_or(side.below), !saved.side_tabs_above);
+        cx.set_global(crate::task::SideLayout { below, split: saved.side_split.map(px) });
         crate::zoom::init(saved.zoom, cx);
 
         let (hook_tx, hook_rx) = async_channel::unbounded::<agent::HookEvent>();
@@ -1299,6 +1300,7 @@ impl Workspace {
             sidebar_rail: self.sidebar_rail,
             side_panel_width: cx.try_global::<SidePanelWidth>().map(|w| f32::from(w.0)),
             side_lower: cx.try_global::<crate::task::SideLayout>().map(|layout| layout.below),
+            side_tabs_above: cx.try_global::<crate::task::SideLayout>().is_some_and(|layout| !layout.tabs_below()),
             side_split: cx.try_global::<crate::task::SideLayout>().and_then(|layout| layout.split).map(f32::from),
             told_unlisted: self.told_unlisted,
             active_collapsed: self.active_collapsed,
@@ -3412,6 +3414,11 @@ impl Workspace {
             let appearance = theme::terminal_appearance(&new);
             for view in self.views() {
                 view.update(cx, |t, cx| t.set_terminal_appearance(&appearance, cx));
+            }
+        }
+        if old.tabs_in_side != new.tabs_in_side {
+            for view in self.views() {
+                view.update(cx, |t, cx| t.tabs_panel_setting(cx));
             }
         }
         if old.gutter_since_base != new.gutter_since_base {

@@ -72,6 +72,9 @@ pub struct FileView {
     pub(super) lsp_attach: u64,
     /// Its server runs without the licence that would give it more.
     pub(super) lsp_unlicensed: bool,
+    /// How much of its header's right end a pane's label covers (tabs in the
+    /// side, no row of tabs): set by the pane as it draws, 0 for none.
+    pub(super) label_room: std::cell::Cell<Pixels>,
     /// How a file that can be drawn (Markdown, SVG, a table) is shown, and the drawing.
     pub(super) preview: super::preview::Preview,
     /// A `.sql` file's connection and results. Not in `preview`, whose task
@@ -1143,6 +1146,8 @@ impl Render for FileView {
                     .gap_4()
                     .px_3()
                     .py_1()
+                    // As tall as the pane's label over its end, which takes the place of a row of tabs.
+                    .when(self.label_room.get() > px(0.), |header| header.h(super::side_tabs::LABEL_HEIGHT).py_0().pr(self.label_room.get()))
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
                     .border_b_1()
