@@ -14,15 +14,21 @@ pub enum Kind {
     Changes,
     /// Agent and shell tabs.
     Terminal,
+    /// The sidebar: its sizes grow with its text, as a browser zooms a page.
+    Sidebar,
 }
 
-/// Sizes in points; `None` is the theme's code size.
+pub const KINDS: [Kind; 4] = [Kind::Editor, Kind::Changes, Kind::Terminal, Kind::Sidebar];
+
+/// Sizes in points; `None` is the theme's code size, or for the sidebar
+/// the size of a task's name it was drawn for.
 #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Debug)]
 #[serde(default)]
 pub struct Zoom {
     pub editor: Option<f32>,
     pub changes: Option<f32>,
     pub terminal: Option<f32>,
+    pub sidebar: Option<f32>,
 }
 
 impl Global for Zoom {}
@@ -38,6 +44,7 @@ impl Zoom {
             Kind::Editor => &mut self.editor,
             Kind::Changes => &mut self.changes,
             Kind::Terminal => &mut self.terminal,
+            Kind::Sidebar => &mut self.sidebar,
         }
     }
 
@@ -46,6 +53,7 @@ impl Zoom {
             Kind::Editor => self.editor,
             Kind::Changes => self.changes,
             Kind::Terminal => self.terminal,
+            Kind::Sidebar => self.sidebar,
         }
     }
 }
@@ -75,9 +83,24 @@ pub fn set_scale(factor: f32, cx: &mut App) {
     cx.refresh_windows();
 }
 
+/// The size of a task's name in the sidebar, the one its lengths are given for.
+pub const SIDEBAR: f32 = 13.;
+
+/// The size of `kind` none was chosen for: the theme's code size, or the
+/// sidebar's own.
+pub fn usual(kind: Kind, code_size: f32) -> f32 {
+    if kind == Kind::Sidebar { SIDEBAR } else { code_size }
+}
+
 /// The size chosen for `kind`, the factor not applied.
 fn chosen(kind: Kind, cx: &App) -> f32 {
-    current(cx).get(kind).unwrap_or(f32::from(cx.theme().mono_font_size))
+    current(cx).get(kind).unwrap_or_else(|| usual(kind, f32::from(cx.theme().mono_font_size)))
+}
+
+/// How much larger than its usual size the sidebar is drawn. Not by a
+/// presentation's factor, which is for what is shown: code and terminals.
+pub fn sidebar_factor(cx: &App) -> f32 {
+    chosen(Kind::Sidebar, cx) / SIDEBAR
 }
 
 pub fn current(cx: &App) -> Zoom {
@@ -89,7 +112,7 @@ pub fn size(kind: Kind, cx: &App) -> Pixels {
     px((chosen(kind, cx) * scale(cx)).round())
 }
 
-/// Sets the size for every view of `kind`; `None` goes back to the theme's.
+/// Sets the size for every view of `kind`; `None` goes back to its usual one.
 pub fn set(kind: Kind, size: Option<f32>, cx: &mut App) {
     let size = size.map(|s| s.round().clamp(MIN, MAX));
     if current(cx).get(kind) == size {
@@ -104,12 +127,12 @@ pub fn set(kind: Kind, size: Option<f32>, cx: &mut App) {
 /// Whether any kind has a size of its own, for "back to the usual size".
 pub fn any_set(cx: &App) -> bool {
     let zoom = current(cx);
-    [Kind::Editor, Kind::Changes, Kind::Terminal].into_iter().any(|kind| zoom.get(kind).is_some())
+    KINDS.into_iter().any(|kind| zoom.get(kind).is_some())
 }
 
-/// Every kind back to the theme's size.
+/// Every kind back to its usual size.
 pub fn reset_all(cx: &mut App) {
-    for kind in [Kind::Editor, Kind::Changes, Kind::Terminal] {
+    for kind in KINDS {
         set(kind, None, cx);
     }
 }
@@ -149,13 +172,12 @@ pub fn steps(delta: &ScrollDelta, cx: &mut App) -> f32 {
 /// order, and the terminal takes the wheel in the capture phase as well.
 pub fn wheel(kind: Kind) -> impl IntoElement {
     canvas(
-        |_, _, _| (),
-        move |bounds, _, window, _| {
-            window.on_mouse_event(move |event: &ScrollEvent, phase, _window, cx| {
-                if phase != DispatchPhase::Capture
-                    || !event.modifiers.control
-                    || !bounds.contains(&event.position)
-                {
+        // Hovered, not just under the pointer: a view drawn over this one (the
+        // sidebar out over a file) takes the wheel for its own size.
+        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+        move |_, hitbox, window, _| {
+            window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
+                if phase != DispatchPhase::Capture || !event.modifiers.control || !hitbox.is_hovered(window) {
                     return;
                 }
                 cx.stop_propagation();
@@ -171,4 +193,59 @@ pub fn wheel(kind: Kind) -> impl IntoElement {
     .top_0()
     .left_0()
     .size_full()
+}
+
+/// `child` with every size in rems `factor` times its own: its text,
+/// paddings and icons. A length that is to grow with it is given in rems.
+pub fn rem_scaled(factor: f32, child: impl IntoElement) -> RemScaled {
+    RemScaled { factor, child: child.into_any_element() }
+}
+
+pub struct RemScaled {
+    factor: f32,
+    child: AnyElement,
+}
+
+impl RemScaled {
+    fn rem(&self, window: &Window) -> Option<Pixels> {
+        (self.factor != 1.).then(|| window.rem_size() * self.factor)
+    }
+}
+
+impl IntoElement for RemScaled {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for RemScaled {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        let rem = self.rem(window);
+        (window.with_rem_size(rem, |window| self.child.request_layout(window, cx)), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
+        let rem = self.rem(window);
+        window.with_rem_size(rem, |window| {
+            self.child.prepaint(window, cx);
+        });
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+        let rem = self.rem(window);
+        window.with_rem_size(rem, |window| self.child.paint(window, cx));
+    }
 }

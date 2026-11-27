@@ -160,16 +160,17 @@ fn text_group(draft: &Draft, sizes: &Sizes, fonts: Vec<SharedString>, code_size:
     };
     let size = |kind: Kind| {
         let (read, write) = (sizes.clone(), sizes.clone());
+        let usual = crate::zoom::usual(kind, code_size);
         SettingField::number_input(
             NumberFieldOptions { min: f64::from(crate::zoom::MIN), max: f64::from(crate::zoom::MAX), step: 1. },
-            move |_| f64::from(read.get().get(kind).unwrap_or(code_size)),
+            move |_| f64::from(read.get().get(kind).unwrap_or(usual)),
             move |value, _| {
                 let mut zoom = write.get();
-                *zoom.slot(kind) = Some(value as f32).filter(|size| *size != code_size);
+                *zoom.slot(kind) = Some(value as f32).filter(|size| *size != usual);
                 write.set(zoom);
             },
         )
-        .default_value(f64::from(code_size))
+        .default_value(f64::from(usual))
     };
     let percent = |key: &'static str, get: fn(&state::Settings) -> u32, set: fn(&mut state::Settings, u32)| {
         let (read, write) = (draft.clone(), draft.clone());
@@ -196,6 +197,7 @@ fn text_group(draft: &Draft, sizes: &Sizes, fonts: Vec<SharedString>, code_size:
         .item(SettingItem::new("Text size in files", size(Kind::Editor)).description("In points. Ctrl+wheel over a view sets its size too."))
         .item(SettingItem::new("Text size in Changes", size(Kind::Changes)))
         .item(SettingItem::new("Text size in terminals", size(Kind::Terminal)))
+        .item(SettingItem::new("Text size in the sidebar", size(Kind::Sidebar)).description("The size of a task's name; the rest of the sidebar grows with it."))
         .item(
             SettingItem::new("Letter spacing in terminals", percent("terminal_letter_spacing", |s| s.terminal_letter_spacing, |s, v| s.terminal_letter_spacing = v))
                 .description("The width of a terminal's cell, in percent of the font's. Below 100 the letters come closer."),
@@ -1740,7 +1742,7 @@ fn open_layered(
                 let mut settings = draft.borrow().clone();
                 settings.normalize();
                 settings.lsp_idle_minutes = settings.lsp_idle_minutes.max(1);
-                for kind in [crate::zoom::Kind::Editor, crate::zoom::Kind::Changes, crate::zoom::Kind::Terminal] {
+                for kind in crate::zoom::KINDS {
                     crate::zoom::set(kind, sizes.get().get(kind), cx);
                 }
                 save(settings, look.get(), layers.borrow().clone(), window, cx);

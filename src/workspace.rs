@@ -167,6 +167,12 @@ impl TaskEntry {
         *self = again;
     }
 
+    /// Its agent, terminals and servers stopped (Pause), or not started in
+    /// this run: no view, nothing under way.
+    pub fn paused(&self) -> bool {
+        self.view.is_none() && self.busy.is_none()
+    }
+
     /// Its request as a link: added, or brought up to date.
     pub fn set_pr_link(&mut self, pr: &crate::pr::Pr) {
         let link = state::TaskLink { what: "pr".into(), key: format!("#{}", pr.number), url: pr.url.clone(), ..Default::default() };
@@ -419,6 +425,8 @@ pub struct Workspace {
     /// The agents' worktrees shown under a task (or a project's path, for
     /// those in temporary places): folded until opened.
     pub open_sides: std::collections::HashSet<PathBuf>,
+    /// The projects whose Paused line is open, by their path.
+    pub open_paused: std::collections::HashSet<PathBuf>,
     /// The task whose menu a right click opened: its tooltip would cover
     /// the menu, so it is not shown till the pointer leaves the row.
     pub menu_on: Option<PathBuf>,
@@ -915,6 +923,7 @@ impl Workspace {
             group_card: None,
             collapsed_groups: Default::default(),
             open_sides: Default::default(),
+            open_paused: Default::default(),
             menu_on: None,
             variant_info: Default::default(),
             usage: Default::default(),
@@ -1966,6 +1975,11 @@ impl Workspace {
                     },
                 )))
         });
+    }
+
+    /// One of the tasks of the last run, its view still to be made.
+    pub(crate) fn coming_back(&self, path: &Path) -> bool {
+        self.restoring.iter().any(|p| p == path)
     }
 
     pub fn toggle_star(&mut self, path: &Path, cx: &mut Context<Self>) {

@@ -38,23 +38,34 @@ impl Render for DraggedRow {
     }
 }
 
-fn section_header(label: &'static str, cx: &App) -> Div {
+/// A length given at the sidebar's usual size, in rems (the theme's are
+/// 16 px) so that it grows with the sidebar's text.
+fn spx(px: f32) -> Rems {
+    rems(px / 16.)
+}
+
+/// The head of a list in the sidebar; a line parts it from the list above.
+fn section_header(label: impl IntoElement, first: bool, cx: &App) -> Div {
     h_flex()
         .px_3()
         .pt_3()
         .pb_1()
         .justify_between()
+        .when(!first, |s| s.mt_1().border_t_1().border_color(cx.theme().border))
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(label)
 }
 
+/// The star of a starred task: a yellow that shows on a light ground too.
+const STAR: Hsla = Hsla { h: 0.12, s: 0.95, l: 0.5, a: 1. };
+
 /// A ring filled clockwise from the top as far as the context is full:
 /// quiet while there is room, yellow when it will soon be squeezed, red
 /// when that is about to happen.
-pub(crate) fn context_dial(fill: f32, cx: &App) -> impl IntoElement {
+pub(crate) fn context_dial(fill: f32, size: impl Into<Length>, cx: &App) -> impl IntoElement {
     let color = if fill >= 0.9 { DIAL_RED } else if fill >= 0.75 { DIAL_AMBER } else { cx.theme().muted_foreground };
-    dial("context-dial", fill, color, cx.theme().foreground)
+    dial("context-dial", fill, color, cx.theme().foreground, size)
 }
 
 /// Colors that show on a light ground as on a dark one: the theme's
@@ -73,7 +84,7 @@ fn branch_follows(title: &str, branch: &str) -> bool {
 /// A ring of 12 px, filled clockwise from the top by `fill` of a turn in
 /// `color`, on a faint whole ring of `ink`: a share of something, at a
 /// glance.
-pub(crate) fn dial(id: &'static str, fill: f32, color: Hsla, ink: Hsla) -> impl IntoElement {
+pub(crate) fn dial(id: &'static str, fill: f32, color: Hsla, ink: Hsla, size: impl Into<Length>) -> impl IntoElement {
     let dial = canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
@@ -97,7 +108,7 @@ pub(crate) fn dial(id: &'static str, fill: f32, color: Hsla, ink: Hsla) -> impl 
             arc(0., fill.clamp(0.03, 1.), px(2.5), color);
         },
     );
-    div().id(id).test_support().flex_none().size(px(12.)).child(dial.size_full())
+    div().id(id).test_support().flex_none().size(size.into()).child(dial.size_full())
 }
 
 /// The width of the sidebar as a rail, and how narrow the whole one is
@@ -137,6 +148,15 @@ fn answer_shown(answer: &str) -> Option<String> {
     Some(if all.len() > 10 || short.len() < whole.len() { format!("{}…", short.trim_end()) } else { short })
 }
 
+/// Where a task's row is drawn: in its project's list, in Needs you or
+/// Starred above the projects, or under its project's Paused line.
+#[derive(Clone, Copy, PartialEq)]
+enum Place {
+    List,
+    Front,
+    Paused,
+}
+
 /// Which of a task's open questions get a row.
 #[derive(Clone, Copy, PartialEq)]
 enum QuestionRows {
@@ -159,11 +179,28 @@ impl Workspace {
         let waiting: std::collections::HashSet<(usize, usize)> = active.iter().copied().collect();
         // Tasks agents propose, of what the window shows.
         let proposals: Vec<_> = if query.is_empty() { self.proposals().into_iter().filter(|p| self.find(&p.1).is_some_and(|(pi, ti)| self.shows(pi, ti))).collect() } else { Vec::new() };
+        // Whether a list is above: the next one is parted from it by a line.
+        let mut above = false;
         if query.is_empty() {
-            if !active.is_empty() || !proposals.is_empty() {
+            // A group that is done is one row, not one per variant.
+            let mut groups = std::collections::HashSet::new();
+            let rows: Vec<(usize, usize, bool)> = active
+                .into_iter()
+                .filter_map(|(pi, ti)| {
+                    let t = &self.projects[pi].tasks[ti];
+                    let asks = t.view.as_ref().is_some_and(|v| matches!(v.read(cx).agent.status, AgentStatus::NeedsInput(_)));
+                    if t.group.is_empty() || asks {
+                        Some((pi, ti, false))
+                    } else {
+                        groups.insert(t.group.clone()).then_some((pi, ti, true))
+                    }
+                })
+                .collect();
+            if !rows.is_empty() || !proposals.is_empty() {
                 let collapsed = self.active_collapsed;
+                above = true;
                 list = list.child(
-                    section_header(if collapsed { "▸ NEEDS YOU" } else { "▾ NEEDS YOU" }, cx)
+                    section_header(SharedString::from(format!("{} NEEDS YOU · {}", if collapsed { "▸" } else { "▾" }, rows.len() + proposals.len())), true, cx)
                         .id("active-header")
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -175,16 +212,15 @@ impl Workspace {
                     for proposal in proposals {
                         list = list.child(self.render_proposal(proposal, cx));
                     }
-                    // A group that is done is one row, not one per variant.
-                    let mut groups = std::collections::HashSet::new();
-                    for (pi, ti) in active {
-                        let t = &self.projects[pi].tasks[ti];
-                        let asks = t.view.as_ref().is_some_and(|v| matches!(v.read(cx).agent.status, AgentStatus::NeedsInput(_)));
-                        if t.group.is_empty() || asks {
-                            list = list.child(self.render_task(pi, ti, true, cx));
+                    // Tinted, to tell from the lists below at a glance.
+                    let tint = cx.theme().green.opacity(0.1);
+                    for (pi, ti, group) in rows {
+                        if group {
+                            let group = self.projects[pi].tasks[ti].group.clone();
+                            list = list.child(div().bg(tint).child(self.render_group_row(pi, &group, true, cx)));
+                        } else {
+                            list = list.child(div().bg(tint).child(self.render_task(pi, ti, Place::Front, cx)));
                             list = self.render_questions(list, pi, ti, QuestionRows::Needed, cx);
-                        } else if groups.insert(t.group.clone()) {
-                            list = list.child(self.render_group_row(pi, &t.group, true, cx));
                         }
                     }
                 }
@@ -203,8 +239,14 @@ impl Workspace {
                 .collect();
             if !starred.is_empty() {
                 let collapsed = self.starred_collapsed;
+                let first = !above;
+                above = true;
                 list = list.child(
-                    section_header(if collapsed { "▸ STARRED" } else { "▾ STARRED" }, cx)
+                    section_header(
+                        h_flex().gap_1().child(if collapsed { "▸" } else { "▾" }).child(div().text_color(STAR).child("★")).child("STARRED"),
+                        first,
+                        cx,
+                    )
                         .id("starred-header")
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -215,7 +257,7 @@ impl Workspace {
                 );
                 if !collapsed {
                     for (pi, ti) in starred {
-                        list = list.child(self.render_task(pi, ti, true, cx));
+                        list = list.child(self.render_task(pi, ti, Place::Front, cx));
                     }
                 }
             }
@@ -257,8 +299,23 @@ impl Workspace {
             let (sides, tasks): (Vec<usize>, Vec<usize>) = tasks.into_iter().partition(|&ti| p.tasks[ti].side.is_some());
             let sides: Vec<usize> = if show_sides { sides } else { Vec::new() };
             let mut tasks: Vec<usize> = if query.is_empty() { tasks } else { tasks.into_iter().chain(sides.iter().copied()).collect() };
-            // The main checkout, then the starred, then the rest in their order.
-            tasks.sort_by_key(|&ti| (!p.tasks[ti].main, !p.tasks[ti].starred));
+            // The main checkout, then the rest in their order: as made, or as dragged.
+            tasks.sort_by_key(|&ti| !p.tasks[ti].main);
+            // Paused, they wait folded under the project's Paused line; a search finds them in
+            // the list. Not one a row is under (an agent's worktree, a task its agent started),
+            // nor one under a row: they stay together.
+            let rows: std::collections::HashSet<&std::path::Path> = tasks.iter().map(|&ti| p.tasks[ti].path.as_path()).collect();
+            let started_here = |ti: usize| p.tasks[ti].spawned_by.as_deref().filter(|by| rows.contains(by));
+            let under: std::collections::HashSet<&std::path::Path> = sides
+                .iter()
+                .filter_map(|&s| p.tasks[s].side.as_ref().and_then(|s| s.parent.as_deref()))
+                .chain(tasks.iter().filter_map(|&ti| started_here(ti)))
+                .collect();
+            let (paused, tasks): (Vec<usize>, Vec<usize>) = if query.is_empty() {
+                tasks.iter().copied().partition(|&ti| self.waits_paused(pi, ti) && !under.contains(p.tasks[ti].path.as_path()) && started_here(ti).is_none())
+            } else {
+                (Vec::new(), tasks)
+            };
             let sides = if query.is_empty() { sides } else { Vec::new() };
             let parents: std::collections::HashSet<&std::path::Path> = tasks.iter().map(|&ti| p.tasks[ti].path.as_path()).collect();
             // Tasks an agent started go under the task whose agent did, when that is a row of
@@ -271,10 +328,10 @@ impl Workspace {
             };
             let side_parent = |ti: usize| p.tasks[ti].side.as_ref().and_then(|s| s.parent.as_deref()).filter(|parent| parents.contains(parent));
             // A project with nothing to show is not shown: of another space, while presenting, or when the search has no hit in it.
-            if !self.in_space(pi) || (tasks.is_empty() && (self.is_presenting() || (!query.is_empty() && !project_hit))) {
+            if !self.in_space(pi) || (tasks.is_empty() && paused.is_empty() && (self.is_presenting() || (!query.is_empty() && !project_hit))) {
                 continue;
             }
-            list = list.child(self.render_project(pi, shown == 0, cx));
+            list = list.child(self.render_project(pi, shown == 0 && !above, cx));
             shown += 1;
             // A search shows its hits even in folded projects.
             if !p.collapsed || !query.is_empty() {
@@ -283,10 +340,10 @@ impl Workspace {
                     let group = &p.tasks[ti].group;
                     // A search lists its hits one by one.
                     if group.is_empty() || !query.is_empty() {
-                        list = list.child(self.render_task(pi, ti, false, cx));
+                        list = list.child(self.render_task(pi, ti, Place::List, cx));
                         list = self.render_questions(list, pi, ti, QuestionRows::All, cx);
                         for &child in children.iter().filter(|&&c| p.tasks[c].spawned_by.as_deref() == Some(p.tasks[ti].path.as_path())) {
-                            list = list.child(self.render_task(pi, child, false, cx));
+                            list = list.child(self.render_task(pi, child, Place::List, cx));
                             list = self.render_questions(list, pi, child, QuestionRows::All, cx);
                         }
                         let under: Vec<usize> = sides.iter().copied().filter(|&s| side_parent(s) == Some(p.tasks[ti].path.as_path())).collect();
@@ -295,13 +352,14 @@ impl Workspace {
                         list = list.child(self.render_group_row(pi, group, false, cx));
                         if !self.collapsed_groups.contains(group) {
                             for (_, ti) in self.members(group).into_iter().filter(|m| m.0 == pi && self.shows(m.0, m.1)) {
-                                list = list.child(self.render_task(pi, ti, false, cx));
+                                list = list.child(self.render_task(pi, ti, Place::List, cx));
                             }
                         }
                     }
                 }
                 let elsewhere: Vec<usize> = sides.iter().copied().filter(|&s| side_parent(s).is_none()).collect();
                 list = self.render_sides(list, pi, p.path.clone(), "temporary ", elsewhere, cx);
+                list = self.render_paused(list, pi, paused, cx);
             } else {
                 // Folded, what works, asks or has answered is still there.
                 for ti in tasks {
@@ -345,7 +403,7 @@ impl Workspace {
             div()
                 .id("sidebar-end")
                 .flex_1()
-                .min_h(px(24.))
+                .min_h(spx(24.))
                 .drag_over::<DraggedRow>(|s, row, _, cx| match row {
                     DraggedRow::Project { .. } => s.border_t_2().border_color(cx.theme().primary),
                     _ => s,
@@ -358,10 +416,14 @@ impl Workspace {
                 })),
         );
 
-        v_flex()
+        // Ctrl+wheel over it makes all of it larger or smaller.
+        let factor = crate::zoom::sidebar_factor(cx);
+        let sidebar = v_flex()
+            .relative()
             .size_full()
             .border_r_1()
             .border_color(cx.theme().border)
+            .child(crate::zoom::wheel(crate::zoom::Kind::Sidebar))
             .child(
                 h_flex()
                     .group("sidebar-top")
@@ -377,8 +439,8 @@ impl Workspace {
                             Button::new("fold-idle")
                                 .xsmall()
                                 .ghost()
-                                .child(svg().path("side-icons/chevrons-down-up.svg").size(px(15.)).text_color(cx.theme().muted_foreground))
-                                .tooltip("Fold the projects where nothing runs; again, unfold all")
+                                .child(svg().path("side-icons/chevrons-down-up.svg").size(spx(15.)).text_color(cx.theme().muted_foreground))
+                                .tooltip("Fold the projects where nothing is at work and close the Paused lines; again, unfold all")
                                 .on_click(cx.listener(|this, _, _, cx| this.fold_idle_projects(cx))),
                         ),
                     )
@@ -389,7 +451,7 @@ impl Workspace {
                             Button::new("add-project")
                                 .xsmall()
                                 .ghost()
-                                .child(svg().path("side-icons/folder-plus.svg").size(px(16.)).text_color(cx.theme().muted_foreground))
+                                .child(svg().path("side-icons/folder-plus.svg").size(spx(16.)).text_color(cx.theme().muted_foreground))
                                 .tooltip("Add a project")
                                 .dropdown_menu({
                                     let this = cx.weak_entity();
@@ -406,19 +468,33 @@ impl Workspace {
                         )
                     }),
             )
-            .child(div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().child(list))
+            .child(div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().child(list));
+        crate::zoom::rem_scaled(factor, sidebar)
     }
 
-    /// Folds the projects whose tasks are all paused and unfolds the others;
-    /// when that is how they are already, unfolds them all.
+    /// Folds the projects where nothing is at work, unfolds the others and
+    /// closes the Paused lines; when that is how they are already, unfolds
+    /// them all (the Paused lines stay closed).
     pub(crate) fn fold_idle_projects(&mut self, cx: &mut Context<Self>) {
-        let runs: Vec<bool> = self.projects.iter().map(|p| p.tasks.iter().any(|t| t.view.is_some())).collect();
-        let folded = self.projects.iter().zip(&runs).all(|(p, runs)| p.collapsed == !runs);
-        for (p, runs) in self.projects.iter_mut().zip(runs) {
-            p.collapsed = !folded && !runs;
+        let at_work: Vec<bool> = (0..self.projects.len()).map(|pi| self.at_work(pi, cx)).collect();
+        let folded = self.open_paused.is_empty() && self.projects.iter().zip(&at_work).all(|(p, at_work)| p.collapsed == !at_work);
+        for (p, at_work) in self.projects.iter_mut().zip(at_work) {
+            p.collapsed = !folded && !at_work;
         }
+        self.open_paused.clear();
         self.save_later(cx);
         cx.notify();
+    }
+
+    /// Whether something in a project is at work: an agent working or asking,
+    /// a task being made or ended, or the task in view. An agent done with its
+    /// turn, a tab left open, is not.
+    fn at_work(&self, pi: usize, cx: &App) -> bool {
+        self.projects[pi].tasks.iter().any(|t| {
+            t.busy.is_some()
+                || self.active.as_deref() == Some(t.path.as_path())
+                || t.view.as_ref().is_some_and(|v| matches!(v.read(cx).agent.status, AgentStatus::Working | AgentStatus::NeedsInput(_)))
+        })
     }
 
     /// The sidebar as a rail when it was dragged that narrow, and while
@@ -486,7 +562,7 @@ impl Workspace {
                         .px_2()
                         .py_0p5()
                         .cursor_pointer()
-                        .border_l_2()
+                        .border_l_4()
                         .border_color(hsla(0.08, 0.9, 0.55, 1.))
                         .hover(|row| row.bg(cx.theme().accent.opacity(0.6)))
                         .child(h_flex().w_full().gap_1().child(div().w(px(10.)).flex_none().text_xs().text_color(muted).child("+")).child(div().flex_1().min_w_0().truncate().text_size(px(12.)).child(title)))
@@ -666,7 +742,7 @@ impl Workspace {
                 let fill = self.usage.get(&path).map_or(0., |(_, usage)| usage.fill());
                 let in_hand = self.active.as_deref() == Some(path.as_path());
                 // Paused: no agent runs for it. Told apart from one that rests, which has the same circle in the list.
-                let paused = task.view.is_none() && task.busy.is_none();
+                let paused = task.paused();
                 let (glyph, unseen) = match &task.view {
                     Some(view) => {
                         let view = view.read(cx);
@@ -704,7 +780,7 @@ impl Workspace {
                         .px_2()
                         .py_0p5()
                         .cursor_pointer()
-                        .border_l_2()
+                        .border_l_4()
                         .border_color(side)
                         .when(in_hand, |row| row.bg(cx.theme().accent))
                         .hover(|row| row.bg(cx.theme().accent.opacity(0.6)))
@@ -727,7 +803,7 @@ impl Workspace {
                                         .when(unseen && !in_hand, |name| name.font_weight(FontWeight::SEMIBOLD))
                                         .child(title),
                                 )
-                                .when(dialed && fill > 0., |row| row.child(context_dial(fill, cx))),
+                                .when(dialed && fill > 0., |row| row.child(context_dial(fill, px(12.), cx))),
                         )
                         // What goes on in it, in a line of its own: the one thing most worth knowing, all the width its.
                         .when(doing.is_some() || whose.is_some(), |row| {
@@ -1182,7 +1258,7 @@ impl Workspace {
                     div()
                         .id(SharedString::from(format!("host-state-{}", p.path.display())))
                         .flex_shrink_0()
-                        .max_w(px(160.))
+                        .max_w(spx(160.))
                         .truncate()
                         .text_xs()
                         .when(state != HostState::Up && state != HostState::Connecting, |s| s.text_color(cx.theme().warning))
@@ -1209,7 +1285,7 @@ impl Workspace {
                             Button::new(SharedString::from(format!("project-archived-{pi}")))
                                 .xsmall()
                                 .ghost()
-                                .child(svg().path("side-icons/history.svg").size(px(15.)).text_color(muted))
+                                .child(svg().path("side-icons/history.svg").size(spx(15.)).text_color(muted))
                                 .tooltip("Archived tasks of the project")
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     cx.stop_propagation();
@@ -1223,7 +1299,7 @@ impl Workspace {
                             Button::new(SharedString::from(format!("project-add-{pi}")))
                                 .xsmall()
                                 .ghost()
-                                .child(svg().path("side-icons/plus.svg").size(px(16.)).text_color(muted))
+                                .child(svg().path("side-icons/plus.svg").size(spx(16.)).text_color(muted))
                                 .dropdown_menu(move |m, _, _| menu_a(m, this_a.clone())),
                         ),
                     ),
@@ -1282,7 +1358,7 @@ impl Workspace {
             .pr_3()
             .py_1()
             .cursor_pointer()
-            .border_l_2()
+            .border_l_4()
             .border_color(transparent_black())
             .when(is_active, |s| s.bg(cx.theme().accent).border_color(cx.theme().primary))
             .when(holds_active && folded, |s| s.border_color(cx.theme().primary))
@@ -1295,7 +1371,7 @@ impl Workspace {
                         div()
                             .id(SharedString::from(format!("fold-{group}-{in_active}")))
                             .flex_none()
-                            .w(px(10.))
+                            .w(spx(10.))
                             .text_xs()
                             .text_color(muted)
                             .child(if in_active { "" } else if folded { "▸" } else { "▾" })
@@ -1314,7 +1390,7 @@ impl Workspace {
             )
             .child(
                 div()
-                    .pl(px(18.))
+                    .pl(spx(18.))
                     .text_xs()
                     .truncate()
                     .text_color(if asks { hsla(0.08, 0.9, 0.55, 1.) } else { muted })
@@ -1374,7 +1450,7 @@ impl Workspace {
                     .id(group.clone())
                     .group(group.clone())
                     .test_support()
-                    .pl(px(26.))
+                    .pl(spx(26.))
                     .pr_1()
                     .gap_1p5()
                     .items_center()
@@ -1382,16 +1458,16 @@ impl Workspace {
                     .text_color(muted)
                     .cursor_pointer()
                     .hover(|s| s.text_color(cx.theme().foreground))
-                    .child(svg().path("side-icons/message-circle-question-mark.svg").size(px(12.)).flex_none().text_color(if q.unread { cx.theme().primary } else { muted }))
+                    .child(svg().path("side-icons/message-circle-question-mark.svg").size(spx(12.)).flex_none().text_color(if q.unread { cx.theme().primary } else { muted }))
                     .children(glyph.filter(|(_, _)| !q.unread).map(|(glyph, color)| div().flex_none().text_color(color).child(glyph)))
                     .child(div().flex_1().min_w_0().truncate().child(q.title.clone()))
-                    .children(doing.map(|doing| div().flex_shrink_0().max_w(px(140.)).truncate().child(doing)))
+                    .children(doing.map(|doing| div().flex_shrink_0().max_w(spx(140.)).truncate().child(doing)))
                     .child(
                         div().opacity(0.).group_hover(group, |s| s.opacity(1.)).child(
                             Button::new(SharedString::from(format!("question-close-{n}")))
                                 .xsmall()
                                 .ghost()
-                                .child(svg().path("side-icons/x.svg").size(px(12.)).text_color(muted))
+                                .child(svg().path("side-icons/x.svg").size(spx(12.)).text_color(muted))
                                 .tooltip("Close the question")
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     cx.stop_propagation();
@@ -1434,7 +1510,7 @@ impl Workspace {
             .px_3()
             .py_1()
             .gap_0p5()
-            .border_l_2()
+            .border_l_4()
             .border_color(hsla(0.08, 0.9, 0.55, 1.))
             .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
             .child(div().text_sm().truncate().child(format!("+ {title}")))
@@ -1467,7 +1543,7 @@ impl Workspace {
             div()
                 .id(SharedString::from(format!("sides-{}", key.display())))
                 .test_support()
-                .pl(px(26.))
+                .pl(spx(26.))
                 .pr_3()
                 .py_0p5()
                 .text_xs()
@@ -1486,13 +1562,62 @@ impl Workspace {
         );
         if open {
             for ti in sides {
-                list = list.child(self.render_task(pi, ti, false, cx));
+                list = list.child(self.render_task(pi, ti, Place::List, cx));
             }
         }
         list
     }
 
-    fn render_task(&self, pi: usize, ti: usize, in_active: bool, cx: &mut Context<Self>) -> AnyElement {
+    /// Paused, it waits under its project's Paused line. The main checkout,
+    /// a variant, a task back from deferred, one coming back at the start and
+    /// one whose question has answered unread stay in the list.
+    fn waits_paused(&self, pi: usize, ti: usize) -> bool {
+        let t = &self.projects[pi].tasks[ti];
+        t.paused() && !t.main && t.group.is_empty() && t.woke.is_none() && !self.coming_back(&t.path) && !t.questions.iter().any(|q| q.closed == 0 && q.unread)
+    }
+
+    /// A project's paused tasks under one line, folded till it is clicked,
+    /// the latest first. A click on one goes on with it, back in the list.
+    fn render_paused(&self, mut list: Stateful<Div>, pi: usize, mut paused: Vec<usize>, cx: &mut Context<Self>) -> Stateful<Div> {
+        if paused.is_empty() {
+            return list;
+        }
+        let p = &self.projects[pi];
+        let open = self.open_paused.contains(&p.path);
+        paused.sort_by_key(|&ti| std::cmp::Reverse(p.tasks[ti].last_active));
+        let fold = p.path.clone();
+        list = list.child(
+            div()
+                .id(SharedString::from(format!("paused-{}", p.path.display())))
+                .test_support()
+                .pl(spx(12.))
+                .pr_3()
+                .py_0p5()
+                .text_xs()
+                .truncate()
+                .text_color(cx.theme().muted_foreground)
+                .cursor_pointer()
+                .hover(|s| s.text_color(cx.theme().foreground))
+                .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Paused tasks, the latest first: a click goes on with one where it stopped").build(window, cx))
+                .child(format!("{} Paused · {}", if open { "▾" } else { "▸" }, paused.len()))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if !this.open_paused.remove(&fold) {
+                        this.open_paused.insert(fold.clone());
+                    }
+                    cx.notify();
+                })),
+        );
+        if open {
+            for ti in paused {
+                list = list.child(self.render_task(pi, ti, Place::Paused, cx));
+                list = self.render_questions(list, pi, ti, QuestionRows::All, cx);
+            }
+        }
+        list
+    }
+
+    fn render_task(&self, pi: usize, ti: usize, place: Place, cx: &mut Context<Self>) -> AnyElement {
+        let in_active = place == Place::Front;
         let project = &self.projects[pi];
         let t = &project.tasks[ti];
         let path = t.path.clone();
@@ -1591,9 +1716,6 @@ impl Workspace {
         // How full its agent's context is, once that is worth knowing.
         let fill = self.usage.get(&path).map_or(0., |(_, usage)| usage.fill());
         let dialed = crate::state::with_settings(|s| s.context_dial);
-        if t.starred {
-            fixed.push("★".into());
-        }
         if t.locked.is_some() {
             details.push("locked".into());
         }
@@ -1635,11 +1757,11 @@ impl Workspace {
         let id = SharedString::from(format!("{}task-{}", if in_active { "active-" } else { "" }, path.display()));
         let mut row = v_flex()
             .id(id)
-            .pl(if listed || ((t.side.is_some() || t.spawned_by.is_some()) && !in_active) { px(26.) } else { px(12.) })
+            .pl(if listed || ((t.side.is_some() || t.spawned_by.is_some()) && place == Place::List) { spx(26.) } else { spx(12.) })
             .pr_3()
-            .py_0p5()
+            .py_1()
             .cursor_pointer()
-            .border_l_2()
+            .border_l_4()
             .border_color(transparent_black())
             .when(is_active, |s| s.bg(cx.theme().accent).border_color(cx.theme().primary))
             .when(unseen && !is_active, |s| s.border_color(glyph.map(|g| g.1).unwrap_or(cx.theme().border)))
@@ -1652,7 +1774,7 @@ impl Workspace {
                     .child(
                         div()
                             .flex_none()
-                            .w(px(10.))
+                            .w(spx(10.))
                             .text_xs()
                             .when_some(glyph, |s, (g, color)| s.text_color(color).child(g)),
                     )
@@ -1660,12 +1782,13 @@ impl Workspace {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(13.))
-                            .line_height(px(18.))
+                            .text_size(spx(13.))
+                            .line_height(spx(18.))
                             .truncate()
                             .when(!running, |s| s.text_color(muted))
                             .child(label.clone()),
                     )
+                    .when(t.starred, |s| s.child(div().flex_none().text_xs().text_color(STAR).child("★")))
                     .when_some(agent_mark.as_ref(), |s, profile| {
                         let name = profile.name.clone();
                         s.child(
@@ -1676,7 +1799,7 @@ impl Workspace {
                         )
                     })
                     // How full the agent's context is, as a dial.
-                    .when(dialed && fill > 0., |s| s.child(context_dial(fill, cx)))
+                    .when(dialed && fill > 0., |s| s.child(context_dial(fill, spx(12.), cx)))
                     .when(unpushed > 0, |s| {
                         s.child(
                             div()
@@ -1710,12 +1833,12 @@ impl Workspace {
             .map(|s| {
                 s.child(
                     h_flex()
-                        .pl(px(18.))
+                        .pl(spx(18.))
                         .gap_1p5()
                         .min_w_0()
-                        .h(px(15.))
-                        .text_size(px(11.))
-                        .line_height(px(15.))
+                        .h(spx(15.))
+                        .text_size(spx(11.))
+                        .line_height(spx(15.))
                         .when_some(pr, |row, pr| {
                             use crate::pr::{Checks, PrState};
                             let color = match (pr.state, pr.checks) {
@@ -1808,17 +1931,17 @@ impl Workspace {
                 )
             })
             .when_some(needs, |s, message| {
-                s.child(div().pl(px(18.)).text_xs().truncate().text_color(hsla(0.08, 0.9, 0.55, 1.)).child(message))
+                s.child(div().pl(spx(18.)).text_xs().truncate().text_color(hsla(0.08, 0.9, 0.55, 1.)).child(message))
             })
             .when_some(lead, |s, (lead, asks)| {
                 s.child(
                     div()
                         .id(SharedString::from(format!("said-{}", path.display())))
-                        .pl(px(18.))
+                        .pl(spx(18.))
                         .pb_0p5()
                         .min_w_0()
-                        .text_size(px(11.))
-                        .line_height(px(15.))
+                        .text_size(spx(11.))
+                        .line_height(spx(15.))
                         .line_clamp(if asks { 2 } else { 3 })
                         .text_ellipsis()
                         .text_color(if asks { hsla(0.08, 0.9, 0.55, 0.9) } else { muted.opacity(0.9) })
@@ -1833,7 +1956,8 @@ impl Workspace {
                 }
             }));
         // A variant keeps its place in its group.
-        if !in_active && !grouped {
+        // Under Paused, in the order last worked in: not where a drop would put it.
+        if place == Place::List && !grouped {
             row = row
                 .on_drag(DraggedRow::Task { project: pi, at: ti, path: path.clone(), name: label }, |row, _, _, cx| {
                     cx.new(|_| row.clone())
@@ -1953,12 +2077,14 @@ mod tests {
             let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
             gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Workspace::new(Vec::new(), Some(None), None, window, cx))).expect("a test window")
         });
-        // The agents' own worktrees, folded at the end: a line that truncates.
+        // The agents' own worktrees, folded after the tasks: a line that truncates.
+        // None of the tasks has run: they are under Paused, opened.
         let repo = dir.join("repo");
         workspace.update(cx, |w, _| {
             for t in &mut w.projects[0].tasks[35..] {
                 t.side = Some(crate::workspace::side::Side { parent: None, ahead: 0, dirty: false, about: None });
             }
+            w.open_paused.insert(repo.clone());
         });
         cx.update_window(handle.into(), |_, window, cx| {
             window.render_frame(cx);
@@ -1971,6 +2097,76 @@ mod tests {
             assert!(last.origin.y > px(400.), "the last row below the window, to scroll to: {:?}", last.origin.y);
         })
         .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Paused tasks are not in the list but under the project's Paused line,
+    /// folded till it is clicked, the latest first; a star leaves a task
+    /// where it is.
+    #[gpui_kit::test]
+    fn paused_tasks_wait_folded_latest_first(cx: &mut gpui_kit::TestAppContext) {
+        use crate::state::{ProjectState, State, TaskState};
+        use crate::workspace::Workspace;
+        use gpui_kit::test::TestWindowExt as _;
+        use gpui_kit::{AppContext as _, Bounds, Point, WindowBounds, WindowOptions, px, size};
+        let _one = crate::workspace::variants::tests::ONE_WINDOW.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("ideae-paused-test-{}", std::process::id()));
+        // SAFETY: set before anything of the app reads them, one window at a time.
+        unsafe {
+            std::env::set_var("IDEAE_STATE", dir.join("state.json"));
+            std::env::set_var("IDEAE_NO_DAEMON", "1");
+        }
+        let task = |i: usize, last_active: u64, starred: bool| TaskState {
+            path: dir.join(format!("t{i}")),
+            branch: format!("t{i}"),
+            title: format!("Task {i}"),
+            last_active,
+            starred,
+            ..Default::default()
+        };
+        let mut tasks = vec![task(0, 10, false), task(1, 30, false), task(2, 20, true), task(3, 5, false), task(4, 5, false), task(5, 5, false)];
+        // Paused all the same, these stay in the list: one whose question has answered unread,
+        // one a task its agent started is under, and that task.
+        tasks[3].questions = vec![crate::state::QuestionState { id: 1, title: "Why?".into(), unread: true, ..Default::default() }];
+        tasks[5].spawned_by = Some(tasks[4].path.clone());
+        let saved = State { projects: vec![ProjectState { path: dir.join("repo"), tasks, ..Default::default() }], ..Default::default() };
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("state.json"), serde_json::to_string(&saved).unwrap()).unwrap();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            gpui_cn::init(cx);
+            crate::theme::init(cx);
+        });
+        let (handle, workspace) = cx.update(|cx| {
+            let bounds = Bounds { origin: Point::default(), size: size(px(1000.), px(600.)) };
+            let options = WindowOptions { window_bounds: Some(WindowBounds::Windowed(bounds)), ..Default::default() };
+            gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Workspace::new(Vec::new(), Some(None), None, window, cx))).expect("a test window")
+        });
+        let paused = gpui_kit::SharedString::from(format!("paused-{}", dir.join("repo").display()));
+        let row = |i: usize| gpui_kit::SharedString::from(format!("task-{}", dir.join(format!("t{i}")).display()));
+        cx.update_window(handle.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(paused.clone()).is_some(), "the Paused line");
+            assert!(window.try_find(row(0)).is_none(), "folded, no paused task in the list");
+            assert!([3, 4, 5].into_iter().all(|i| window.try_find(row(i)).is_some()), "an answer unread, a task and the one its agent started stay");
+            window.click(paused.clone(), cx);
+            window.render_frame(cx);
+            let y = |i: usize| window.find(row(i)).bounds().origin.y;
+            assert!(y(1) < y(2) && y(2) < y(0), "the latest first, the starred one too: {:?}", (y(0), y(1), y(2)));
+            // The sidebar's size, as Ctrl+wheel over it sets it: the rows grow with their text.
+            let height = window.find(row(0)).bounds().size.height;
+            crate::zoom::set(crate::zoom::Kind::Sidebar, Some(crate::zoom::SIDEBAR * 2.), cx);
+            window.render_frame(cx);
+            let twice = window.find(row(0)).bounds().size.height;
+            assert!(twice > height * 1.8, "a row twice as high: {height:?} → {twice:?}");
+        })
+        .unwrap();
+        // Fold: nothing is at work here, the project folds and its Paused line closes; again, unfolded, the line closed.
+        let folded = |cx: &mut gpui_kit::TestAppContext| workspace.update(cx, |w, _| (w.projects[0].collapsed, w.open_paused.is_empty()));
+        workspace.update(cx, |w, cx| w.fold_idle_projects(cx));
+        assert_eq!(folded(cx), (true, true));
+        workspace.update(cx, |w, cx| w.fold_idle_projects(cx));
+        assert_eq!(folded(cx), (false, true));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

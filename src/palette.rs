@@ -397,7 +397,7 @@ impl Workspace {
             own("Light theme", "window", |w, window, cx| w.set_appearance(crate::theme::Appearance::Light, window, cx)),
             own("Dark theme", "window", |w, window, cx| w.set_appearance(crate::theme::Appearance::Dark, window, cx)),
             own("Theme as the system", "window: light by day, dark by night", |w, window, cx| w.set_appearance(crate::theme::Appearance::Auto, window, cx)),
-            own("Text of its usual size", "window: editor, diff and terminal", |_, _, cx| crate::zoom::reset_all(cx)),
+            own("Text of its usual size", "window: editor, diff, terminal and sidebar", |_, _, cx| crate::zoom::reset_all(cx)),
             own(if presenting { "End presentation" } else { "Enter presentation mode…" }, "window: only the tasks chosen", |w, window, cx| w.toggle_presentation(window, cx)),
             own(if saving { "Leave power save mode" } else { "Power save mode" }, "window: language servers and background work", |w, _, cx| w.toggle_power_saving(cx)),
             keyed("Settings…", "settings", "app"),

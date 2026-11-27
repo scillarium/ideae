@@ -146,7 +146,7 @@ impl TaskView {
                             .id("agent-usage")
                             .gap_1p5()
                             .child(label)
-                            .when(dialed, |tab| tab.child(crate::sidebar::context_dial(fill, cx)))
+                            .when(dialed, |tab| tab.child(crate::sidebar::context_dial(fill, px(12.), cx)))
                             .tooltip(move |_, cx| cx.new(|cx| crate::usage::UsageTooltip::new(root.clone(), who.clone(), cx)).into()),
                     )
                 } else if let TabKind::File(file) = &tab.kind {
@@ -179,7 +179,7 @@ impl TaskView {
                             .child(svg().path("side-icons/message-circle-question-mark.svg").size(px(14.)).flex_none().text_color(color))
                             .children(status.map(|(glyph, mark)| div().text_color(mark).child(glyph)))
                             .child(div().when(asleep, |d| d.text_color(color)).child(name))
-                            .when(dialed, |tab| tab.child(crate::sidebar::context_dial(fill, cx))),
+                            .when(dialed, |tab| tab.child(crate::sidebar::context_dial(fill, px(12.), cx))),
                     )
                 } else if matches!(tab.kind, TabKind::Asleep) {
                     Tab::new().child(div().text_color(cx.theme().muted_foreground).child(label))

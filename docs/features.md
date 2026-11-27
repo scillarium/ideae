@@ -159,9 +159,18 @@ trust).
 ## Pause, archive, restore
 
 A task's menu ends with **Pause** and **Archive**. Pause stops its agent,
-terminals and servers and runs the project's teardown; the task stays in
-the list, and a click starts it again (the main checkout's Pause takes it
-out of the list, as before).
+terminals and servers and runs the project's teardown; the task goes from the
+list to its project's **Paused** line, folded under the project's tasks with
+the one last worked in first, and a click there starts it again, its agent
+going on with its conversation, back in its place in the list (the main
+checkout's Pause takes it out of the list, as before). A variant, a task
+back from deferred, one an agent's worktree or a task its agent started is
+under, one an agent started and one whose question answered unread stay in
+the list. The list keeps the order tasks were made in, or dragged to; a star
+does not move one up, it marks it ★ and lists it under Starred too. The fold
+button over the list folds the projects where nothing is at work (an agent
+working or asking, a task being made, the one in view) and closes the Paused
+lines; again, it unfolds them all.
 
 Archive is how a task ends when it is done, merged or not: one click, since
 nothing is lost. The task is paused, then one file is written for it,
@@ -695,8 +704,9 @@ whose it is.
   follows the system.
 - Text (Settings → General): the code font (Fira Code or JetBrains Mono, which
   come with ideae, or one installed), ligatures on or off, the size
-  of code in files, Changes and terminals (Ctrl+wheel over a view sets it too),
-  and a terminal's letter spacing and line height.
+  of code in files, Changes and terminals and of the sidebar's text (Ctrl+wheel
+  over a view sets it too; over the sidebar its rows and icons grow with it), and
+  a terminal's letter spacing and line height.
 - Spaces sort projects into sets (work, personal, a client); the window shows
   one at a time, and the agents of the others keep working unseen.
 - Presentation mode (View → Presentation Mode…) leaves only the tasks you pick in the window, draws code
