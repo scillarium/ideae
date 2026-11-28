@@ -42,8 +42,17 @@ jobs:
           # Cargo tells a local crate fresh by its files' times, which a checkout
           # makes new: those of a crate that holds what was built are made old
           # (scripts/vendor-times.py, its record kept in .vendor-built).
-          cache-workspace-crates: true
-          cache-directories: .vendor-built
+          # target/ is cached as a directory of its own, cleaned by
+          # scripts/prune-target.py alone: rust-cache's cleaning goes by crate
+          # names, and those of vendor/ not among them went whole, unless
+          # their name cut at its last '-' was another's (gpui-cn as gpui):
+          # mermaid-rs-renderer was built again at every run. Its workspace's
+          # target is one that is not there, so it has nothing to clean.
+          workspaces: ". -> target-unused"
+          cache-targets: false
+          cache-directories: |
+            target
+            .vendor-built
           # New with vendor/ in it: the cache of before would be taken as a
           # match and none saved.
           prefix-key: v1-rust
@@ -83,8 +92,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           # As in build.
-          cache-workspace-crates: true
-          cache-directories: .vendor-built
+          workspaces: ". -> target-unused"
+          cache-targets: false
+          cache-directories: |
+            target
+            .vendor-built
           prefix-key: v1-rust
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -119,8 +131,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           # As in build.
-          cache-workspace-crates: true
-          cache-directories: .vendor-built
+          workspaces: ". -> target-unused"
+          cache-targets: false
+          cache-directories: |
+            target
+            .vendor-built
           prefix-key: v1-rust
           # A pull request's cache is its own alone and would push main's out.
           save-if: ${{ github.ref == 'refs/heads/main' }}
