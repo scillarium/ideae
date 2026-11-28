@@ -52,8 +52,12 @@ if [ "${1:-}" = "--inner" ]; then
   else
     app=("$here/../target/debug/ideae" "$@")
   fi
+  # The app has no bus unless asked: IDEAE_WL_BUS=1 gives it this run's own
+  # (the global menu's check, the step `menus`), never the user's.
+  bus=disabled:
+  [ -n "${IDEAE_WL_BUS:-}" ] && bus=$DBUS_SESSION_BUS_ADDRESS
   env -u GSETTINGS_BACKEND -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_CACHE_HOME \
-    HOME="$REAL_HOME" DBUS_SESSION_BUS_ADDRESS=disabled: WAYLAND_DISPLAY=ideae-wl \
+    HOME="$REAL_HOME" DBUS_SESSION_BUS_ADDRESS="$bus" WAYLAND_DISPLAY=ideae-wl \
     "${app[@]}" > "$log" 2>&1 & apid=$!
   sleep "$startup"
   for step in $steps; do

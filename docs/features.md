@@ -708,7 +708,11 @@ whose it is.
 - One menu bar on every system: File, Edit, View, Navigate, Task, Git, Window
   and Help. macOS has it at the top of the screen; on Linux and Windows it is
   behind ☰ in the title bar, or Alt pressed alone (Settings → General → Title bar can
-  keep it shown).
+  keep it shown). On Linux it is also told to the desktop as a GTK app tells its
+  menus, so GNOME Shell with a global menu extension (Orbit's Global Menu, on Wayland
+  and on X11) shows it in the top bar; ☰ stays, since whether anything shows it
+  cannot be known. The app needs no X11 library but libxkbcommon on a Wayland
+  system: libxcb and libxkbcommon-x11 are loaded only under X11.
 - Themes: Ayu, Catppuccin, Gruvbox, Solarized, Everforest, Flexoki, GitHub, One,
   Rosé Pine, Tokyo Night and JetBrains' Islands, each light and dark. Settings has
   the light one and the dark one apart, and whether the window is light, dark or

@@ -300,11 +300,26 @@ impl WaylandSurfaceState {
                 decoration_manager.get_toplevel_decoration(&toplevel, &globals.qh, surface.id())
             });
 
+        // ideae patch: where the app's menus are on D-Bus, for GNOME Shell (gtk_dbus.rs).
+        let gtk_surface = globals.gtk_shell.as_ref().zip(crate::linux::gtk_dbus::gtk_dbus()).map(|(shell, dbus)| {
+            let gtk_surface = shell.get_gtk_surface(&surface, &globals.qh, ());
+            gtk_surface.set_dbus_properties(
+                Some(dbus.application_id),
+                None,
+                Some(dbus.menubar_path),
+                None,
+                Some(dbus.application_path),
+                Some(dbus.bus_name),
+            );
+            gtk_surface
+        });
+
         Ok(WaylandSurfaceState::Xdg(WaylandXdgSurfaceState {
             xdg_surface,
             toplevel,
             decoration,
             dialog,
+            gtk_surface,
         }))
     }
 }
@@ -314,6 +329,7 @@ pub struct WaylandXdgSurfaceState {
     toplevel: xdg_toplevel::XdgToplevel,
     decoration: Option<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1>,
     dialog: Option<XdgDialogV1>,
+    gtk_surface: Option<super::gtk_shell::gtk_surface1::GtkSurface1>,
 }
 
 pub struct WaylandLayerSurfaceState {
@@ -523,6 +539,8 @@ impl WaylandSurfaceState {
                 toplevel,
                 decoration: _decoration,
                 dialog,
+                // gtk_surface1 has no destructor at version 1: it goes with the surface.
+                gtk_surface: _gtk_surface,
             }) => {
                 // drop the dialog before toplevel so compositor can explicitly unapply it's effects
                 if let Some(dialog) = dialog {

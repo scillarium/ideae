@@ -61,6 +61,7 @@ wayland = [
     "wayland-protocols-wlr",
     "filedescriptor",
     "xkbcommon/wayland",
+    "wayland-scanner",
     "open",
     "gpui/wayland",
     "uuid/v5",
@@ -217,6 +218,11 @@ optional = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.wayland-client]
 version = "0.31.11"
+optional = true
+
+# ideae patch: gtk_shell1 (protocols/gtk-shell.xml), for the global menu.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.wayland-scanner]
+version = "0.31"
 optional = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.wayland-cursor]

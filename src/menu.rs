@@ -615,9 +615,24 @@ pub fn make_bar(cx: &mut App) {
 }
 
 fn bar_menus(window: &mut Window, cx: &mut App) -> Vec<gpui_kit::OwnedMenu> {
+    live_menus(window, cx).into_iter().map(Menu::owned).collect()
+}
+
+/// The menus as they are now: the ☰'s, and the global menu's (global_menu.rs).
+pub(crate) fn live_menus(window: &mut Window, cx: &mut App) -> Vec<Menu> {
     let dialog = window.has_active_dialog(cx);
     let shown = cx.try_global::<Target>().and_then(|t| t.workspace.upgrade()).map(|w| w.read(cx).shown(dialog, window, cx));
-    menus(shown.unwrap_or_default()).into_iter().map(Menu::owned).collect()
+    menus(shown.unwrap_or_default())
+}
+
+/// An item chosen in a menu the app does not draw (the shell's global menu):
+/// as if chosen in the ☰.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn chosen_elsewhere(action: Box<dyn gpui_kit::Action>, cx: &mut App) {
+    in_window(cx, move |_, window, cx| {
+        window.dispatch_action(action.boxed_clone(), cx);
+        crate::learn::chosen(&*action, window, cx);
+    });
 }
 
 /// The bar for the title bar: collapsed, a ☰ until a menu opens.

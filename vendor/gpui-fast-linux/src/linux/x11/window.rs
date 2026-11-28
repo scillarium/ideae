@@ -82,6 +82,10 @@ x11rb::atom_manager! {
         _NET_SUPPORTED,
         _MOTIF_WM_HINTS,
         _GTK_SHOW_WINDOW_MENU,
+        _GTK_APPLICATION_ID,
+        _GTK_UNIQUE_BUS_NAME,
+        _GTK_APPLICATION_OBJECT_PATH,
+        _GTK_MENUBAR_OBJECT_PATH,
         _GTK_FRAME_EXTENTS,
         _GTK_EDGE_CONSTRAINTS,
         _NET_CLIENT_LIST_STACKING,
@@ -613,6 +617,29 @@ impl X11WindowState {
                         title.as_bytes(),
                     ),
                 )?;
+            }
+
+            // ideae patch: where the app's menus are on D-Bus, for GNOME Shell (gtk_dbus.rs).
+            if params.kind != WindowKind::PopUp
+                && let Some(dbus) = crate::linux::gtk_dbus::gtk_dbus()
+            {
+                for (atom, value) in [
+                    (atoms._GTK_APPLICATION_ID, dbus.application_id),
+                    (atoms._GTK_UNIQUE_BUS_NAME, dbus.bus_name),
+                    (atoms._GTK_APPLICATION_OBJECT_PATH, dbus.application_path),
+                    (atoms._GTK_MENUBAR_OBJECT_PATH, dbus.menubar_path),
+                ] {
+                    check_reply(
+                        || "X11 ChangeProperty8 on a _GTK_ D-Bus property failed.",
+                        xcb.change_property8(
+                            xproto::PropMode::REPLACE,
+                            x_window,
+                            atom,
+                            atoms.UTF8_STRING,
+                            value.as_bytes(),
+                        ),
+                    )?;
+                }
             }
 
             if params.kind == WindowKind::PopUp {

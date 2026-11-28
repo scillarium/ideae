@@ -260,6 +260,8 @@ pub struct Globals {
     pub gesture_manager: Option<zwp_pointer_gestures_v1::ZwpPointerGesturesV1>,
     pub dialog: Option<xdg_wm_dialog_v1::XdgWmDialogV1>,
     pub system_bell: Option<xdg_system_bell_v1::XdgSystemBellV1>,
+    /// ideae patch: GNOME's, for where a window's menus are on D-Bus.
+    pub gtk_shell: Option<super::gtk_shell::gtk_shell1::GtkShell1>,
     pub executor: ForegroundExecutor,
     pub frame_ping: Ping,
 }
@@ -311,6 +313,7 @@ impl Globals {
             gesture_manager: globals.bind(&qh, 1..=3, ()).ok(),
             dialog: globals.bind(&qh, dialog_v..=dialog_v, ()).ok(),
             system_bell: globals.bind(&qh, 1..=1, ()).ok(),
+            gtk_shell: globals.bind(&qh, 1..=1, ()).ok(),
             executor,
             qh,
             frame_ping,
@@ -1662,6 +1665,8 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
 
 delegate_noop!(WaylandClientStatePtr: ignore xdg_activation_v1::XdgActivationV1);
 delegate_noop!(WaylandClientStatePtr: ignore xdg_system_bell_v1::XdgSystemBellV1);
+delegate_noop!(WaylandClientStatePtr: ignore super::gtk_shell::gtk_shell1::GtkShell1);
+delegate_noop!(WaylandClientStatePtr: ignore super::gtk_shell::gtk_surface1::GtkSurface1);
 delegate_noop!(WaylandClientStatePtr: ignore wl_compositor::WlCompositor);
 delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
 delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);

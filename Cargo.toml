@@ -86,6 +86,14 @@ rusty-leveldb = "4.0.2"
 
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# The global menu (src/global_menu.rs): where a window's menus are, told to the shell.
+gpui-fast-linux = "0.1.12"
+zbus = "5"
+async-io = "2"
+futures-lite = "2"
+# libxcb loaded when an X11 window is first opened, not linked: a Wayland system
+# need not have it (with vendor/xkbcommon, which does the same for libxkbcommon-x11).
+x11rb = { version = "0.13", default-features = false, features = ["dl-libxcb"] }
 # The keyring directly: the window library names every item alike (src/db/password.rs).
 oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
 
@@ -151,6 +159,9 @@ gpui-base = { path = "vendor/gpui-base" }
 # wayland/window.rs patched: the first commit waits for maximize/fullscreen, so a
 # window opened maximized is placed by the compositor and restores to that place.
 gpui-fast-linux = { path = "vendor/gpui-fast-linux" }
+# x11/ffi.rs patched: libxkbcommon-x11 loaded when an X11 keyboard is set up, not
+# linked, so that a system with no X11 starts the app without it.
+xkbcommon = { path = "vendor/xkbcommon" }
 # platform.rs patched: set_menus listed every item's action again on each call and never
 # dropped the old ones; an action already listed now keeps its tag. set_menu_hooks: the app
 # tells each item's state, title and check mark when its menu opens (menuNeedsUpdate,

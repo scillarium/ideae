@@ -5,6 +5,7 @@ mod acp;
 mod agent;
 use ideae_core::battery;
 mod copying;
+mod global_menu;
 mod agents;
 use ideae_core::awake;
 mod archive;
@@ -793,6 +794,8 @@ fn main() {
                 focus: !behind,
                 ..TitleBar::window_options()
             };
+            // Before the window, which tells the shell where its menus are.
+            global_menu::start(cx);
             gpui_kit::open_window(options, cx, |window, cx| {
                 cx.new(|cx| {
                     let mut workspace = Workspace::with_state(saved, repos, agent, appearance, window, cx);

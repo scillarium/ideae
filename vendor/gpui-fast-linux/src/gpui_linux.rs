@@ -3,4 +3,4 @@
 mod fast;
 mod linux;
 
-pub use linux::{current_platform, linux_platform};
+pub use linux::{GtkDbus, current_platform, linux_platform, set_gtk_dbus};

@@ -1,6 +1,7 @@
 // Modified by Longbridge for gpui-fast.
 mod dispatcher;
 mod display_connection;
+mod gtk_dbus;
 mod headless;
 mod keyboard;
 mod platform;
@@ -16,6 +17,7 @@ mod x11;
 mod xdg_desktop_portal;
 
 pub use dispatcher::*;
+pub use gtk_dbus::{GtkDbus, set_gtk_dbus};
 pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
 pub(crate) use headless::*;
 pub(crate) use keyboard::*;

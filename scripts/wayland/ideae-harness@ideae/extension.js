@@ -142,6 +142,49 @@ export default class Harness extends Extension {
         }
         if (name === 'windows')
             return appWindows().map(describe).join('\n');
+        // Where each window's menus are on D-Bus, as GTK tells GNOME Shell
+        // (the global menu), and what Start there gives: what an extension
+        // that shows them reads (IDEAE_WL_BUS=1 lets the app on the bus).
+        if (name === 'menus') {
+            return appWindows().map(w => {
+                const bus = w.get_gtk_unique_bus_name();
+                const path = w.get_gtk_menubar_object_path();
+                if (!bus || !path)
+                    return `"${w.get_title()}" no menus told`;
+                try {
+                    const reply = Gio.DBus.session.call_sync(bus, path, 'org.gtk.Menus', 'Start',
+                        new GLib.Variant('(au)', [[0]]), null, Gio.DBusCallFlags.NONE, 2000, null);
+                    const menus = reply.recursiveUnpack()[0];
+                    const bar = menus.find(([g, m]) => g === 0 && m === 0);
+                    const labels = bar ? bar[2].map(i => i.label).join(', ') : '';
+                    return `"${w.get_title()}" ${bus} ${path} app=${w.get_gtk_application_object_path()} ` +
+                        `menus=${menus.length} bar: ${labels}`;
+                } catch (e) {
+                    return `"${w.get_title()}" ${bus} ${path}: ${e.message}`;
+                }
+            }).join('\n');
+        }
+        // The item of that label (`_` for a space) chosen in the focused
+        // window's global menu: its action activated, as the shell would.
+        if (name === 'menu') {
+            const w = global.display.focus_window ?? appWindows()[0];
+            const bus = w?.get_gtk_unique_bus_name();
+            if (!bus)
+                return 'no menus told';
+            const call = (path, iface, method, args, type) => Gio.DBus.session.call_sync(bus, path, iface, method,
+                new GLib.Variant(type, args), null, Gio.DBusCallFlags.NONE, 2000, null);
+            const menus = call(w.get_gtk_menubar_object_path(), 'org.gtk.Menus', 'Start', [[0]], '(au)').recursiveUnpack()[0];
+            const want = arg.replace(/_/g, ' ');
+            for (const [, , items] of menus) {
+                const item = items.find(i => i.label && i.label.replace(/__/g, '_') === want && i.action);
+                if (item) {
+                    call(w.get_gtk_application_object_path(), 'org.gtk.Actions', 'Activate',
+                        [item.action.replace(/^app\./, ''), [], {}], '(sava{sv})');
+                    return `chose ${want} (${item.action})`;
+                }
+            }
+            return `no item ${want}`;
+        }
         if (name === 'log') {
             this.write(arg);
             return '';

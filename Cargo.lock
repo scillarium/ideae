@@ -3209,6 +3209,7 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-plasma",
  "wayland-protocols-wlr",
+ "wayland-scanner",
  "x11rb",
  "xkbcommon",
  "zed-scap",
@@ -4463,6 +4464,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "async-io",
  "base64 0.22.1",
  "block2 0.6.2",
  "boa_engine",
@@ -4471,7 +4473,9 @@ dependencies = [
  "ctor",
  "embed-resource",
  "flate2",
+ "futures-lite",
  "gpui-cn",
+ "gpui-fast-linux",
  "gpui-fast-macos",
  "gpui-kit",
  "grep-matcher",
@@ -4542,6 +4546,8 @@ dependencies = [
  "ureq",
  "webpki-roots",
  "windows-sys 0.61.2",
+ "x11rb",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -11820,6 +11826,8 @@ dependencies = [
  "as-raw-xcb-connection",
  "gethostname",
  "libc",
+ "libloading",
+ "once_cell",
  "rustix",
  "x11rb-protocol",
  "xcursor",
@@ -11880,11 +11888,10 @@ dependencies = [
 [[package]]
 name = "xkbcommon"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d66ca9352cbd4eecbbc40871d8a11b4ac8107cfc528a6e14d7c19c69d0e1ac9"
 dependencies = [
  "as-raw-xcb-connection",
  "libc",
+ "libloading",
  "memmap2",
  "xkeysym",
 ]
